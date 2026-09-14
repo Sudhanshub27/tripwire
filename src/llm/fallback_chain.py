@@ -164,6 +164,17 @@ class RuleBasedFallbackProvider(LLMProvider):
         return validated.model_dump(mode="json")
 
 
+class MockProvider(RuleBasedFallbackProvider):
+    """
+    Offline Deterministic Mock Provider for zero-cost benchmarks and testing.
+    Uses heuristic extraction to extract entity fields without external API calls.
+    """
+
+    def __init__(self, name: str = "Mock"):
+        super().__init__()
+        self.name = name
+
+
 class FallbackChain:
     """
     Multi-Tier Fallback Chain: Tries LLM providers in priority tier order (Gemini -> Groq -> DeepSeek).

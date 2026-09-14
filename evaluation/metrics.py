@@ -106,13 +106,19 @@ class BenchmarkMetricsCollector:
         self.warmup_records = warmup_records
         self.timestamp = datetime.now(timezone.utc).isoformat()
         self.git_commit = get_git_commit()
+        self.app_mock_mode = getattr(settings, "MOCK_MODE", False)
 
         # Environmental & Concurrency Configuration state
+        # In offline mock mode, the benchmark harness operates in mock mode (MOCK_MODE=True)
+        # while application_mock_mode accurately records the underlying host/app settings.MOCK_MODE.
+        effective_mock_mode = True if mode == "mock" else self.app_mock_mode
         self.configuration = {
             "MAX_CONCURRENT_SCRAPES": getattr(settings, "MAX_CONCURRENT_SCRAPES", 5),
             "SCRAPER_TIMEOUT_SECONDS": getattr(settings, "SCRAPER_TIMEOUT_SECONDS", 15.0),
             "RATE_LIMIT_TOKENS_PER_SEC": getattr(settings, "RATE_LIMIT_TOKENS_PER_SEC", 10.0),
-            "MOCK_MODE": getattr(settings, "MOCK_MODE", True),
+            "MOCK_MODE": effective_mock_mode,
+            "APPLICATION_MOCK_MODE": self.app_mock_mode,
+            "BENCHMARK_MODE": mode,
             "DATA_PROCESSED_DIR": str(settings.DATA_PROCESSED_DIR),
         }
 
@@ -131,12 +137,15 @@ class BenchmarkMetricsCollector:
         self.llm_success_count: int = 0
         self.llm_fail_count: int = 0
         self.llm_fallback_count: int = 0
-        self.provider_counts: Dict[str, int] = {
-            "Gemini": 0,
-            "Groq": 0,
-            "DeepSeek": 0,
-            "RuleBased": 0,
-        }
+        if self.mode == "mock":
+            self.provider_counts: Dict[str, int] = {"Mock": 0}
+        else:
+            self.provider_counts: Dict[str, int] = {
+                "Gemini": 0,
+                "Groq": 0,
+                "DeepSeek": 0,
+                "RuleBased": 0,
+            }
 
         # Extraction Quality counts
         self.extraction_success_count: int = 0
@@ -180,7 +189,19 @@ class BenchmarkMetricsCollector:
         if is_fallback:
             self.llm_fallback_count += 1
 
-        p_clean = "RuleBased" if "rule" in provider.lower() else provider
+        if "mock" in provider.lower():
+            p_clean = "Mock"
+        elif "rule" in provider.lower():
+            p_clean = "RuleBased"
+        elif "gemini" in provider.lower():
+            p_clean = "Gemini"
+        elif "groq" in provider.lower():
+            p_clean = "Groq"
+        elif "deepseek" in provider.lower():
+            p_clean = "DeepSeek"
+        else:
+            p_clean = provider
+
         if p_clean not in self.provider_counts:
             self.provider_counts[p_clean] = 0
         self.provider_counts[p_clean] += 1
@@ -265,6 +286,8 @@ class BenchmarkMetricsCollector:
         # Calculate provider percentage breakdown
         prov_breakdown = {}
         for prov, cnt in self.provider_counts.items():
+            if self.mode == "mock" and cnt == 0 and len(self.provider_counts) > 1:
+                continue
             pct = round((cnt / tot_llm_calls) * 100, 1) if tot_llm_calls > 0 else 0.0
             prov_breakdown[prov] = {"count": cnt, "percentage": pct}
 
@@ -278,8 +301,12 @@ class BenchmarkMetricsCollector:
                 "timestamp": self.timestamp,
                 "git_commit": self.git_commit,
                 "mode": self.mode,
+                "benchmark_mode": self.mode,
+                "application_mock_mode": self.app_mock_mode,
                 "iterations": self.iterations,
+                "records": self.requested_records,
                 "requested_records": self.requested_records,
+                "warmup": self.warmup_records,
                 "warmup_records": self.warmup_records,
                 "configuration": self.configuration,
             },
@@ -375,6 +402,8 @@ class BenchmarkMetricsCollector:
         # LLM Stats
         table.add_row("3. LLM Latency (ms)", "Mean / Median / p95", f"{llm_stats['mean']}ms / {llm_stats['median']}ms / {llm_stats['p95']}ms")
         table.add_row("", "Min / Max Range", f"[{llm_stats['min']}ms, {llm_stats['max']}ms]")
+        prov_summary = ", ".join(f"{k}: {v['count']} ({v['percentage']}%)" for k, v in data["llm"]["provider_breakdown"].items())
+        table.add_row("", "Provider Breakdown", prov_summary)
 
         # Vector Stats
         table.add_row("4. Vector Latency (ms)", "Mean / Median / p95", f"{vector_stats['mean']}ms / {vector_stats['median']}ms / {vector_stats['p95']}ms")

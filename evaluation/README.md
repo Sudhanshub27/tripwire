@@ -17,11 +17,13 @@ The `evaluation` package provides a scientific, reproducible benchmarking and co
 5. **Operational Key Rates**:
    * `success_rate`: Ratio of validated records to total records processed
    * `failure_rate`: Ratio of failed records to total records processed
-   * `llm_fallback_rate`: Ratio of extractions requiring tier > 1 fallback providers
+   * `llm_fallback_rate`: Ratio of extractions requiring tier > 1 fallback providers (0.0 in offline mock benchmark mode, as `MockProvider` is the primary deterministic execution engine rather than a failure fallback)
    * `schema_validation_success_rate`: Ratio of records matching Pydantic schema
    * `duplicate_detection_rate`: Ratio of merged entities (exact + normalized + fuzzy) to total evaluated
 6. **Reproducibility & Environment Metadata**:
-   * Git commit hash (`git_commit`), ISO timestamp, dataset metadata, and active concurrency settings (`MAX_CONCURRENT_SCRAPES`, `SCRAPER_TIMEOUT_SECONDS`, `RATE_LIMIT_TOKENS_PER_SEC`, `MOCK_MODE`).
+   * Git commit hash (`git_commit`), ISO timestamp (`timestamp`), benchmark mode (`benchmark_mode`, `mode`), application mock mode (`application_mock_mode`), dataset sizes (`records`, `iterations`, `warmup`), and active operational configuration (`MAX_CONCURRENT_SCRAPES`, `SCRAPER_TIMEOUT_SECONDS`, `RATE_LIMIT_TOKENS_PER_SEC`, `MOCK_MODE`, `APPLICATION_MOCK_MODE`, `BENCHMARK_MODE`, `DATA_PROCESSED_DIR`).
+   * In offline mock mode (`--mode mock`), operational configuration `MOCK_MODE` is explicitly `true` so mock benchmarks never claim production/live execution, while `application_mock_mode` accurately records the host environment setting.
+   * `provider_breakdown` accurately describes mock execution (`Mock`), omitting unconfigured live frontier providers (Gemini, Groq, DeepSeek).
 7. **Baseline vs. New Comparison Harness**:
    * CLI tool `python -m evaluation.compare` computes metric deltas, percentage changes, and color-coded terminal diffs between baseline and new reports.
 

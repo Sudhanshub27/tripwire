@@ -24,7 +24,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Pytest & Coverage
+# Pytest, Coverage & Test Artifacts
 .pytest_cache/
 .coverage
 .coverage.*
@@ -34,6 +34,14 @@ coverage.xml
 *.cover
 *.py.cover
 .hypothesis/
+test-results/
+playwright-report/
+blob-report/
+
+# Linters & Tooling Caches
+.ruff_cache/
+.mypy_cache/
+.pyrefly/
 
 # Virtual Environments
 venv/
@@ -48,6 +56,7 @@ node_modules/
 src/dashboard/frontend/node_modules/
 dist/
 src/dashboard/frontend/dist/
+src/dashboard/frontend/dist_ci_test_bak/
 src/dashboard/frontend/public/*.png
 src/dashboard/frontend/public/*.ico
 npm-debug.log*

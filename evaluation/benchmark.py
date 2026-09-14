@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
 import structlog
-from src.llm.fallback_chain import FallbackChain, RuleBasedFallbackProvider
+from config.settings import settings
+from src.llm.fallback_chain import FallbackChain, MockProvider
 from src.resolution.entity_resolver import EntityResolver
 from src.schemas.base import BaseRecord
 from src.schemas.job import Job
@@ -93,149 +94,161 @@ async def run_benchmark(
     vector_mgr = VectorStoreManager()
 
     if mode == "mock":
-        fallback_chain = FallbackChain(providers=[RuleBasedFallbackProvider()])
+        fallback_chain = FallbackChain(providers=[MockProvider()])
     else:
         fallback_chain = FallbackChain()
 
-    # --- PHASE 1: Cold-Start Warm-up Handling ---
-    logger.info("Initiating benchmark warm-up phase", warmup_records=warmup_records)
-    t0_cold = time.perf_counter()
+    orig_mock_mode = getattr(settings, "MOCK_MODE", True)
+    if mode == "mock":
+        settings.MOCK_MODE = True
 
-    if warmup_records > 0:
-        warmup_dataset = load_evaluation_dataset(warmup_records)
-        for w_item in warmup_dataset:
-            w_schema = SCHEMA_MAP.get(w_item.get("target_schema", "Startup"), Startup)
-            # Perform dummy extraction, resolution, and vector embedding calculation
-            extracted, _ = await fallback_chain.extract_with_fallback(
-                text=w_item.get("html", "<div>Warmup</div>"),
-                schema=w_schema,
-            )
-            raw_name = w_item.get("raw_name", "Warmup Entity")
-            _ = resolver.resolve(raw_name)
-            _ = compute_dense_text_embedding(raw_name)
+    try:
+        # --- PHASE 1: Cold-Start Warm-up Handling ---
+        logger.info("Initiating benchmark warm-up phase", warmup_records=warmup_records)
+        t0_cold = time.perf_counter()
 
-    cold_start_time_seconds = time.perf_counter() - t0_cold
-    logger.info("Completed benchmark warm-up phase", cold_start_time_seconds=round(cold_start_time_seconds, 4))
-
-    # --- PHASE 2: Steady-State Multi-Iteration Processing ---
-    dataset = load_evaluation_dataset(record_count)
-    t0_steady = time.perf_counter()
-    processed_entities: List[Dict[str, Any]] = []
-
-    for it in range(iterations):
-        logger.info("Executing benchmark iteration", iteration=it + 1, total_iterations=iterations)
-
-        for idx, item in enumerate(dataset):
-            schema_name = item.get("target_schema", "Startup")
-            schema_cls = SCHEMA_MAP.get(schema_name, Startup)
-            html_payload = item.get("html", "<div>Sample HTML Entity Payload</div>")
-
-            # 1. Scraper Ingestion Stage
-            t0_scr = time.perf_counter()
-            _ = len(html_payload)
-            scr_latency_ms = round((time.perf_counter() - t0_scr) * 1000, 4)
-            collector.record_scrape(latency_ms=scr_latency_ms, success=True)
-
-            # 2. Multi-Tier LLM Extraction Stage
-            t0_llm = time.perf_counter()
-            extracted_dict, winning_provider = await fallback_chain.extract_with_fallback(
-                text=html_payload,
-                schema=schema_cls,
-            )
-            llm_latency_ms = round((time.perf_counter() - t0_llm) * 1000, 2)
-
-            if extracted_dict and winning_provider != "FAILED_ALL_PROVIDERS":
-                is_fallback = "rule" in winning_provider.lower() or winning_provider not in ("GeminiProvider", "Gemini")
-                collector.record_llm_call(
-                    provider=winning_provider,
-                    latency_ms=llm_latency_ms,
-                    success=True,
-                    is_fallback=is_fallback,
+        if warmup_records > 0:
+            warmup_dataset = load_evaluation_dataset(warmup_records)
+            for w_item in warmup_dataset:
+                w_schema = SCHEMA_MAP.get(w_item.get("target_schema", "Startup"), Startup)
+                # Perform dummy extraction, resolution, and vector embedding calculation
+                extracted, _ = await fallback_chain.extract_with_fallback(
+                    text=w_item.get("html", "<div>Warmup</div>"),
+                    schema=w_schema,
                 )
+                raw_name = w_item.get("raw_name", "Warmup Entity")
+                _ = resolver.resolve(raw_name)
+                _ = compute_dense_text_embedding(raw_name)
 
-                try:
-                    validated = schema_cls.model_validate(extracted_dict)
-                    collector.record_extraction(success=True, schema_valid=True, missing_fields=0)
-                    record_dict = validated.model_dump(mode="json")
-                except Exception:
-                    collector.record_extraction(success=False, schema_valid=False, missing_fields=1)
-                    record_dict = extracted_dict
-            else:
-                collector.record_llm_call(
-                    provider=winning_provider,
-                    latency_ms=llm_latency_ms,
-                    success=False,
-                    is_fallback=True,
+        cold_start_time_seconds = time.perf_counter() - t0_cold
+        logger.info("Completed benchmark warm-up phase", cold_start_time_seconds=round(cold_start_time_seconds, 4))
+
+        # --- PHASE 2: Steady-State Multi-Iteration Processing ---
+        dataset = load_evaluation_dataset(record_count)
+        t0_steady = time.perf_counter()
+        processed_entities: List[Dict[str, Any]] = []
+
+        for it in range(iterations):
+            logger.info("Executing benchmark iteration", iteration=it + 1, total_iterations=iterations)
+
+            for idx, item in enumerate(dataset):
+                schema_name = item.get("target_schema", "Startup")
+                schema_cls = SCHEMA_MAP.get(schema_name, Startup)
+                html_payload = item.get("html", "<div>Sample HTML Entity Payload</div>")
+
+                # 1. Scraper Ingestion Stage
+                t0_scr = time.perf_counter()
+                _ = len(html_payload)
+                scr_latency_ms = round((time.perf_counter() - t0_scr) * 1000, 4)
+                collector.record_scrape(latency_ms=scr_latency_ms, success=True)
+
+                # 2. Multi-Tier LLM Extraction Stage
+                t0_llm = time.perf_counter()
+                extracted_dict, winning_provider = await fallback_chain.extract_with_fallback(
+                    text=html_payload,
+                    schema=schema_cls,
                 )
-                collector.record_extraction(success=False, schema_valid=False, missing_fields=2)
-                record_dict = {"name": item.get("raw_name", f"Entity {idx}"), "recordType": "base"}
+                llm_latency_ms = round((time.perf_counter() - t0_llm) * 1000, 2)
 
-            # 3. Entity Resolution Stage
-            raw_entity_name = item.get("raw_name") or record_dict.get("name") or record_dict.get("maker_company") or "Unknown Entity"
-            canonical, method, conf = resolver.resolve(raw_entity_name)
-            collector.record_resolution(method=method)
+                if extracted_dict and winning_provider != "FAILED_ALL_PROVIDERS":
+                    if mode == "mock":
+                        # Offline deterministic mock benchmark: MockProvider is the primary execution engine, not a failure fallback
+                        is_fallback = False
+                    else:
+                        is_fallback = "rule" in winning_provider.lower() or winning_provider not in ("GeminiProvider", "Gemini", "Gemini-Flash")
 
-            if canonical:
-                record_dict["canonical_name"] = canonical
-                if "name" in record_dict:
-                    record_dict["name"] = canonical
+                    collector.record_llm_call(
+                        provider=winning_provider,
+                        latency_ms=llm_latency_ms,
+                        success=True,
+                        is_fallback=is_fallback,
+                    )
 
-            if it == 0:
-                processed_entities.append(record_dict)
+                    try:
+                        validated = schema_cls.model_validate(extracted_dict)
+                        collector.record_extraction(success=True, schema_valid=True, missing_fields=0)
+                        record_dict = validated.model_dump(mode="json")
+                    except Exception:
+                        collector.record_extraction(success=False, schema_valid=False, missing_fields=1)
+                        record_dict = extracted_dict
+                else:
+                    collector.record_llm_call(
+                        provider=winning_provider,
+                        latency_ms=llm_latency_ms,
+                        success=False,
+                        is_fallback=True,
+                    )
+                    collector.record_extraction(success=False, schema_valid=False, missing_fields=2)
+                    record_dict = {"name": item.get("raw_name", f"Entity {idx}"), "recordType": "base"}
 
-    steady_state_time_seconds = time.perf_counter() - t0_steady
-    total_execution_time_seconds = cold_start_time_seconds + steady_state_time_seconds
+                # 3. Entity Resolution Stage
+                raw_entity_name = item.get("raw_name") or record_dict.get("name") or record_dict.get("maker_company") or "Unknown Entity"
+                canonical, method, conf = resolver.resolve(raw_entity_name)
+                collector.record_resolution(method=method)
 
-    # --- PHASE 3: Vector Storage Indexing & Hybrid Search ---
-    indexed_items = []
-    for p_idx, entity in enumerate(processed_entities):
-        title = entity.get("canonical_name") or entity.get("name") or entity.get("title") or f"Entity {p_idx}"
-        rec_type = entity.get("recordType", "startup")
-        text_body = f"{title} {entity.get('description', '')} {entity.get('stage', '')}".strip()
-        indexed_items.append({
-            "id": f"eval-{rec_type}-{p_idx}",
-            "record_type": rec_type,
-            "title": title,
-            "text": text_body,
-            "vector": compute_dense_text_embedding(text_body),
-            "payload": entity,
-        })
+                if canonical:
+                    record_dict["canonical_name"] = canonical
+                    if "name" in record_dict:
+                        record_dict["name"] = canonical
 
-    vector_mgr.in_memory_index = indexed_items
-    vector_mgr._is_indexed = True
-    collector.set_vector_indexed_count(len(indexed_items))
+                if it == 0:
+                    processed_entities.append(record_dict)
 
-    # Vector search queries
-    test_queries = [
-        "AI infrastructure and developer tools",
-        "Low-latency voice agents",
-        "Speech transcription batching",
-        "Distributed Systems Engineer remote",
-        "Reasoning open-source LLM model",
-    ]
+        steady_state_time_seconds = time.perf_counter() - t0_steady
+        total_execution_time_seconds = cold_start_time_seconds + steady_state_time_seconds
 
-    for q in test_queries:
-        t0_vec = time.perf_counter()
-        _ = vector_mgr.search(query=q, limit=5)
-        vec_latency_ms = round((time.perf_counter() - t0_vec) * 1000, 2)
-        collector.record_vector_search(latency_ms=vec_latency_ms)
+        # --- PHASE 3: Vector Storage Indexing & Hybrid Search ---
+        indexed_items = []
+        for p_idx, entity in enumerate(processed_entities):
+            title = entity.get("canonical_name") or entity.get("name") or entity.get("title") or f"Entity {p_idx}"
+            rec_type = entity.get("recordType", "startup")
+            text_body = f"{title} {entity.get('description', '')} {entity.get('stage', '')}".strip()
+            indexed_items.append({
+                "id": f"eval-{rec_type}-{p_idx}",
+                "record_type": rec_type,
+                "title": title,
+                "text": text_body,
+                "vector": compute_dense_text_embedding(text_body),
+                "payload": entity,
+            })
 
-    # Record timings and generate final report
-    collector.set_timings(
-        cold_start_seconds=cold_start_time_seconds,
-        steady_state_seconds=steady_state_time_seconds,
-        total_seconds=total_execution_time_seconds,
-    )
+        vector_mgr.in_memory_index = indexed_items
+        vector_mgr._is_indexed = True
+        collector.set_vector_indexed_count(len(indexed_items))
 
-    report_data = collector.to_dict()
+        # Vector search queries
+        test_queries = [
+            "AI infrastructure and developer tools",
+            "Low-latency voice agents",
+            "Speech transcription batching",
+            "Distributed Systems Engineer remote",
+            "Reasoning open-source LLM model",
+        ]
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(report_data, f, indent=2)
+        for q in test_queries:
+            t0_vec = time.perf_counter()
+            _ = vector_mgr.search(query=q, limit=5)
+            vec_latency_ms = round((time.perf_counter() - t0_vec) * 1000, 2)
+            collector.record_vector_search(latency_ms=vec_latency_ms)
 
-    logger.info("Saved reproducible benchmark JSON report", path=str(output_file))
-    collector.print_terminal_summary()
+        # Record timings and generate final report
+        collector.set_timings(
+            cold_start_seconds=cold_start_time_seconds,
+            steady_state_seconds=steady_state_time_seconds,
+            total_seconds=total_execution_time_seconds,
+        )
 
-    return report_data
+        report_data = collector.to_dict()
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(report_data, f, indent=2)
+
+        logger.info("Saved reproducible benchmark JSON report", path=str(output_file))
+        collector.print_terminal_summary()
+
+        return report_data
+    finally:
+        settings.MOCK_MODE = orig_mock_mode
 
 
 def main():

@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
+from config.settings import settings
 from evaluation.benchmark import run_benchmark
 from evaluation.compare import compare_reports
 from evaluation.metrics import (
@@ -178,3 +179,179 @@ def test_compare_reports_cli(tmp_path: Path):
 
     assert deltas["success_rate"]["delta"] == 0.05
     assert deltas["llm_fallback_rate"]["delta"] == -0.10
+
+
+@pytest.mark.asyncio
+async def test_mock_metadata_consistency(tmp_path: Path):
+    """Test that mock benchmark metadata consistently records modes, counts, and configuration."""
+    output_report = tmp_path / "mock_meta_report.json"
+    report = await run_benchmark(
+        mode="mock",
+        record_count=10,
+        iterations=2,
+        warmup_records=2,
+        output_path=output_report,
+    )
+
+    meta = report["metadata"]
+    assert meta["mode"] == "mock"
+    assert meta["benchmark_mode"] == "mock"
+    assert meta["application_mock_mode"] == getattr(settings, "MOCK_MODE", False)
+    assert meta["records"] == 10
+    assert meta["requested_records"] == 10
+    assert meta["iterations"] == 2
+    assert meta["warmup"] == 2
+    assert meta["warmup_records"] == 2
+    assert isinstance(meta["git_commit"], str) and len(meta["git_commit"]) > 0
+    assert isinstance(meta["timestamp"], str) and "T" in meta["timestamp"]
+
+    # Configuration assertions: mock benchmark must not claim production/live MOCK_MODE = false
+    config = meta["configuration"]
+    assert config["MOCK_MODE"] is True
+    assert config["APPLICATION_MOCK_MODE"] == getattr(settings, "MOCK_MODE", False)
+    assert config["BENCHMARK_MODE"] == "mock"
+    assert "MAX_CONCURRENT_SCRAPES" in config
+    assert "DATA_PROCESSED_DIR" in config
+
+
+@pytest.mark.asyncio
+async def test_provider_accounting(tmp_path: Path):
+    """Test that provider accounting in mock mode is accurate and does not claim fallbacks or ghost providers."""
+    output_report = tmp_path / "provider_accounting_report.json"
+    report = await run_benchmark(
+        mode="mock",
+        record_count=6,
+        iterations=2,
+        warmup_records=1,
+        output_path=output_report,
+    )
+
+    llm_section = report["llm"]
+    assert llm_section["total_calls"] == 12
+    assert llm_section["successful_calls"] == 12
+    assert llm_section["failed_calls"] == 0
+    assert llm_section["fallback_calls"] == 0
+    assert llm_section["fallback_rate"] == 0.0
+    assert report["rates"]["llm_fallback_rate"] == 0.0
+
+    # Provider breakdown: must only contain Mock, no fabricated 0 counts for uncalled providers
+    breakdown = llm_section["provider_breakdown"]
+    assert "Mock" in breakdown
+    assert breakdown["Mock"]["count"] == 12
+    assert breakdown["Mock"]["percentage"] == 100.0
+    assert "Gemini" not in breakdown
+    assert "Groq" not in breakdown
+    assert "DeepSeek" not in breakdown
+
+    # Live mode provider accounting test using collector
+    live_collector = BenchmarkMetricsCollector(mode="live", requested_records=5, iterations=1)
+    assert "Gemini" in live_collector.provider_counts
+    assert "Groq" in live_collector.provider_counts
+    assert "DeepSeek" in live_collector.provider_counts
+    assert "RuleBased" in live_collector.provider_counts
+
+    live_collector.record_llm_call(provider="Gemini", latency_ms=10.0, success=True, is_fallback=False)
+    live_collector.record_llm_call(provider="Groq", latency_ms=20.0, success=True, is_fallback=True)
+    live_data = live_collector.to_dict()
+
+    live_breakdown = live_data["llm"]["provider_breakdown"]
+    assert live_breakdown["Gemini"]["count"] == 1
+    assert live_breakdown["Groq"]["count"] == 1
+    assert live_data["llm"]["fallback_calls"] == 1
+    assert live_data["llm"]["fallback_rate"] == 0.5
+
+
+@pytest.mark.asyncio
+async def test_report_schema(tmp_path: Path):
+    """Test that generated benchmark report adheres strictly to the expected schema and constraints."""
+    output_report = tmp_path / "schema_check_report.json"
+    report = await run_benchmark(
+        mode="mock",
+        record_count=5,
+        iterations=1,
+        warmup_records=1,
+        output_path=output_report,
+    )
+
+    expected_top_keys = {
+        "metadata",
+        "pipeline",
+        "rates",
+        "scraper",
+        "llm",
+        "extraction_quality",
+        "resolution",
+        "vector_search",
+    }
+    assert set(report.keys()) == expected_top_keys
+
+    # Rates bounded in [0.0, 1.0]
+    rates = report["rates"]
+    for rate_key in [
+        "success_rate",
+        "failure_rate",
+        "llm_fallback_rate",
+        "schema_validation_success_rate",
+        "duplicate_detection_rate",
+    ]:
+        assert 0.0 <= rates[rate_key] <= 1.0, f"Rate {rate_key} out of bounds: {rates[rate_key]}"
+    assert round(rates["success_rate"] + rates["failure_rate"], 2) == 1.0
+
+    # Latency statistics structures
+    for section_key in ["scraper", "llm", "vector_search"]:
+        stats = report[section_key]["stats_ms"]
+        for stat_field in ["mean", "median", "p50", "p95", "min", "max"]:
+            assert stat_field in stats
+            assert isinstance(stats[stat_field], (int, float))
+            assert stats[stat_field] >= 0.0
+        assert stats["min"] <= stats["max"]
+        assert stats["min"] <= stats["p50"] <= stats["max"]
+
+
+@pytest.mark.asyncio
+async def test_repeated_mock_benchmark_reproducibility(tmp_path: Path):
+    """Test that two consecutive mock benchmark runs produce identical deterministic metrics."""
+    run1_file = tmp_path / "run1.json"
+    run2_file = tmp_path / "run2.json"
+
+    run1 = await run_benchmark(
+        mode="mock",
+        record_count=10,
+        iterations=2,
+        warmup_records=2,
+        output_path=run1_file,
+    )
+
+    run2 = await run_benchmark(
+        mode="mock",
+        record_count=10,
+        iterations=2,
+        warmup_records=2,
+        output_path=run2_file,
+    )
+
+    # 1. Pipeline deterministic numbers
+    assert run1["pipeline"]["records_processed"] == run2["pipeline"]["records_processed"] == 20
+    assert run1["pipeline"]["successful_records"] == run2["pipeline"]["successful_records"] == 20
+    assert run1["pipeline"]["failed_records"] == run2["pipeline"]["failed_records"] == 0
+
+    # 2. Key rates deterministic match
+    assert run1["rates"] == run2["rates"]
+
+    # 3. LLM call counts and provider breakdown deterministic match
+    assert run1["llm"]["total_calls"] == run2["llm"]["total_calls"] == 20
+    assert run1["llm"]["successful_calls"] == run2["llm"]["successful_calls"] == 20
+    assert run1["llm"]["failed_calls"] == run2["llm"]["failed_calls"] == 0
+    assert run1["llm"]["fallback_calls"] == run2["llm"]["fallback_calls"] == 0
+    assert run1["llm"]["fallback_rate"] == run2["llm"]["fallback_rate"] == 0.0
+    assert run1["llm"]["provider_breakdown"] == run2["llm"]["provider_breakdown"]
+
+    # 4. Extraction quality deterministic match
+    assert run1["extraction_quality"] == run2["extraction_quality"]
+
+    # 5. Entity resolution counts deterministic match
+    assert run1["resolution"] == run2["resolution"]
+
+    # 6. Vector search indexed count deterministic match
+    assert run1["vector_search"]["indexed_records"] == run2["vector_search"]["indexed_records"] == 10
+
