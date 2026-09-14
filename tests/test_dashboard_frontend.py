@@ -1,13 +1,10 @@
-import shutil
-from pathlib import Path
 from fastapi.testclient import TestClient
-import pytest
 
 
 def test_import_and_serve_frontend_missing_assets(tmp_path, monkeypatch):
     """Test that when dist exists with index.html but assets/ is missing,
     the app does not crash and serves index.html."""
-    from src.dashboard.main import app, FRONTEND_DIST_DIR
+    from src.dashboard.main import app
     client = TestClient(app)
 
     # By default in the current workspace, let's test request
