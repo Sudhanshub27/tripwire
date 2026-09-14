@@ -1,6 +1,7 @@
 import asyncio
 import json
 import shutil
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -25,27 +26,12 @@ from src.vector.vector_store import vector_store
 configure_logging(settings.LOG_LEVEL)
 logger = structlog.get_logger(__name__)
 
-app = FastAPI(
-    title="Tripwire Pipeline Dashboard API",
-    description="FastAPI Backend and Management Interface for Async Ingestion System",
-    version="1.0.0",
-)
-
-# Enable CORS for local development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 MOCK_DATA_DIR = settings.BASE_DIR / "src" / "dashboard" / "mock_data"
 FRONTEND_DIST_DIR = settings.BASE_DIR / "src" / "dashboard" / "frontend" / "dist"
 PROCESSED_DIR = settings.DATA_PROCESSED_DIR
 
 # Global pipeline execution state
-pipeline_state = {
+pipeline_state: Dict[str, Any] = {
     "status": "idle",  # "idle" | "running" | "completed" | "failed"
     "last_run_at": datetime.now(timezone.utc).isoformat(),
     "current_stage": None,
@@ -83,14 +69,32 @@ def sync_static_assets():
             shutil.copy(fav_src, dist_dir / "favicon.ico")
 
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     settings.setup_directories()
     try:
         sync_static_assets()
     except Exception as e:
         logger.warning("Failed executing asset sync", error=str(e))
     logger.info("Graphone Pipeline Dashboard backend started", mock_mode=settings.MOCK_MODE)
+    yield
+
+
+app = FastAPI(
+    title="Tripwire Pipeline Dashboard API",
+    description="FastAPI Backend and Management Interface for Async Ingestion System",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# Enable CORS for local development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/api/config")
@@ -404,18 +408,18 @@ async def trigger_pipeline_run(background_tasks: BackgroundTasks) -> Dict[str, A
     }
 
 
-# Mount built frontend static files if dist folder and assets exist
+# Mount built frontend static files if dist assets exist
 assets_dir = FRONTEND_DIST_DIR / "assets"
 if assets_dir.is_dir():
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-if FRONTEND_DIST_DIR.exists():
-    @app.get("/{full_path:path}")
-    async def serve_frontend(full_path: str):
-        file_path = FRONTEND_DIST_DIR / full_path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
-        index_file = FRONTEND_DIST_DIR / "index.html"
-        if index_file.exists():
-            return FileResponse(index_file)
-        raise HTTPException(status_code=404, detail="Frontend dist index.html not found")
+
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    file_path = FRONTEND_DIST_DIR / full_path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(file_path)
+    index_file = FRONTEND_DIST_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Frontend dist index.html not found")
