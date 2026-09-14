@@ -404,13 +404,18 @@ async def trigger_pipeline_run(background_tasks: BackgroundTasks) -> Dict[str, A
     }
 
 
-# Mount built frontend static files if dist folder exists
-if FRONTEND_DIST_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets"), name="assets")
+# Mount built frontend static files if dist folder and assets exist
+assets_dir = FRONTEND_DIST_DIR / "assets"
+if assets_dir.is_dir():
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
+if FRONTEND_DIST_DIR.exists():
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         file_path = FRONTEND_DIST_DIR / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(FRONTEND_DIST_DIR / "index.html")
+        index_file = FRONTEND_DIST_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Frontend dist index.html not found")
