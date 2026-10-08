@@ -379,4 +379,3 @@ def test_rejection(temp_env):
 def test_persistence(temp_env):
     """Verify persistence of review decisions and logs."""
     test_persistence_of_decisions(temp_env)
-

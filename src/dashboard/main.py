@@ -280,7 +280,7 @@ async def approve_resolution_review(id: str) -> Dict[str, Any]:
     """Approve ambiguous entity resolution match, merging candidate into canonical entity."""
     updated = review_queue.approve_review(id)
     if not updated:
-        if settings.MOCK_MODE:
+        if settings.MOCK_MODE and id in ("rev-00101", "rev-00102"):
             return {
                 "status": "approved",
                 "review": {
@@ -301,7 +301,7 @@ async def reject_resolution_review(id: str) -> Dict[str, Any]:
     """Reject ambiguous entity resolution match, keeping candidate as a separate NEW entity."""
     updated = review_queue.reject_review(id)
     if not updated:
-        if settings.MOCK_MODE:
+        if settings.MOCK_MODE and id in ("rev-00101", "rev-00102"):
             return {
                 "status": "rejected",
                 "review": {
