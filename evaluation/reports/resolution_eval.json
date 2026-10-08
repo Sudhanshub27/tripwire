@@ -1,0 +1,464 @@
+{
+  "evaluator": "EntityResolutionEvaluator",
+  "active_fuzzy_threshold": 85.0,
+  "total_pairs_evaluated": 25,
+  "metrics": {
+    "confusion_matrix": {
+      "true_positives": 14,
+      "false_positives": 0,
+      "false_negatives": 4,
+      "true_negatives": 7,
+      "total_pairs": 25
+    },
+    "classification": {
+      "precision": 1.0,
+      "recall": 0.7778,
+      "f1_score": 0.875,
+      "accuracy": 0.84
+    },
+    "method_rates": {
+      "exact_match_rate": 0.28,
+      "normalized_match_rate": 0.2,
+      "fuzzy_match_rate": 0.08,
+      "unresolved_rate": 0.44
+    },
+    "confidence_distribution": {
+      "mean": 0.74,
+      "median": 0.95,
+      "p50": 0.95,
+      "p95": 1.0,
+      "min": 0.12,
+      "max": 1.0
+    }
+  },
+  "decision_model": {
+    "counts": {
+      "MATCH": 14,
+      "REVIEW": 3,
+      "NEW": 8
+    },
+    "match_threshold": 85.0,
+    "review_threshold": 65.0,
+    "match_rate": 0.56,
+    "review_rate": 0.12,
+    "new_rate": 0.32
+  },
+  "threshold_analysis": {
+    "threshold_curve": [
+      {
+        "threshold": 50.0,
+        "precision": 0.8,
+        "recall": 0.8889,
+        "f1_score": 0.8421,
+        "accuracy": 0.76,
+        "tp": 16,
+        "fp": 4,
+        "fn": 2,
+        "tn": 3
+      },
+      {
+        "threshold": 60.0,
+        "precision": 0.8889,
+        "recall": 0.8889,
+        "f1_score": 0.8889,
+        "accuracy": 0.84,
+        "tp": 16,
+        "fp": 2,
+        "fn": 2,
+        "tn": 5
+      },
+      {
+        "threshold": 70.0,
+        "precision": 1.0,
+        "recall": 0.8333,
+        "f1_score": 0.9091,
+        "accuracy": 0.88,
+        "tp": 15,
+        "fp": 0,
+        "fn": 3,
+        "tn": 7
+      },
+      {
+        "threshold": 75.0,
+        "precision": 1.0,
+        "recall": 0.8333,
+        "f1_score": 0.9091,
+        "accuracy": 0.88,
+        "tp": 15,
+        "fp": 0,
+        "fn": 3,
+        "tn": 7
+      },
+      {
+        "threshold": 80.0,
+        "precision": 1.0,
+        "recall": 0.7222,
+        "f1_score": 0.8387,
+        "accuracy": 0.8,
+        "tp": 13,
+        "fp": 0,
+        "fn": 5,
+        "tn": 7
+      },
+      {
+        "threshold": 85.0,
+        "precision": 1.0,
+        "recall": 0.6667,
+        "f1_score": 0.8,
+        "accuracy": 0.76,
+        "tp": 12,
+        "fp": 0,
+        "fn": 6,
+        "tn": 7
+      },
+      {
+        "threshold": 90.0,
+        "precision": 1.0,
+        "recall": 0.6667,
+        "f1_score": 0.8,
+        "accuracy": 0.76,
+        "tp": 12,
+        "fp": 0,
+        "fn": 6,
+        "tn": 7
+      },
+      {
+        "threshold": 95.0,
+        "precision": 1.0,
+        "recall": 0.6667,
+        "f1_score": 0.8,
+        "accuracy": 0.76,
+        "tp": 12,
+        "fp": 0,
+        "fn": 6,
+        "tn": 7
+      }
+    ],
+    "recommended_threshold": 70.0,
+    "best_f1_score": 0.9091
+  },
+  "category_breakdown": {
+    "exact_duplicates": {
+      "total": 2,
+      "correct": 2,
+      "accuracy": 1.0
+    },
+    "capitalization": {
+      "total": 3,
+      "correct": 3,
+      "accuracy": 1.0
+    },
+    "whitespace": {
+      "total": 2,
+      "correct": 2,
+      "accuracy": 1.0
+    },
+    "punctuation": {
+      "total": 2,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "legal_suffixes": {
+      "total": 5,
+      "correct": 5,
+      "accuracy": 1.0
+    },
+    "abbreviations": {
+      "total": 2,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "token_reordering": {
+      "total": 2,
+      "correct": 2,
+      "accuracy": 1.0
+    },
+    "obvious_non_matches": {
+      "total": 4,
+      "correct": 4,
+      "accuracy": 1.0
+    },
+    "ambiguous_similar_names": {
+      "total": 3,
+      "correct": 3,
+      "accuracy": 1.0
+    }
+  },
+  "per_pair_predictions": [
+    {
+      "id": "er-01",
+      "entity_a": "OpenAI",
+      "entity_b": "OpenAI",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "exact_duplicates",
+      "method_used": "exact",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-02",
+      "entity_a": "Anthropic",
+      "entity_b": "Anthropic",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "exact_duplicates",
+      "method_used": "exact",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-03",
+      "entity_a": "openai inc",
+      "entity_b": "OPENAI INC",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "capitalization",
+      "method_used": "exact",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-04",
+      "entity_a": "groq inc",
+      "entity_b": "Groq Inc",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "capitalization",
+      "method_used": "exact",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-05",
+      "entity_a": "Anthropic  PBC ",
+      "entity_b": "Anthropic PBC",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "whitespace",
+      "method_used": "normalized",
+      "confidence_score": 0.95,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-06",
+      "entity_a": " DeepSeek  AI ",
+      "entity_b": "DeepSeek AI",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "whitespace",
+      "method_used": "normalized",
+      "confidence_score": 0.95,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-07",
+      "entity_a": "DeepSeek-AI",
+      "entity_b": "DeepSeek AI",
+      "expected_match": true,
+      "predicted_match": false,
+      "case_category": "punctuation",
+      "method_used": "unresolved",
+      "confidence_score": 0.7619047619047619,
+      "decision": "REVIEW"
+    },
+    {
+      "id": "er-08",
+      "entity_a": "SynthFlow.ai",
+      "entity_b": "SynthFlow ai",
+      "expected_match": true,
+      "predicted_match": false,
+      "case_category": "punctuation",
+      "method_used": "unresolved",
+      "confidence_score": 0.782608695652174,
+      "decision": "REVIEW"
+    },
+    {
+      "id": "er-09",
+      "entity_a": "Graphone Corp",
+      "entity_b": "Graphone LLC",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "legal_suffixes",
+      "method_used": "normalized",
+      "confidence_score": 0.95,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-10",
+      "entity_a": "Mistral AI SAS",
+      "entity_b": "Mistral AI Ltd",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "legal_suffixes",
+      "method_used": "exact",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-11",
+      "entity_a": "International Business Machines",
+      "entity_b": "IBM",
+      "expected_match": true,
+      "predicted_match": false,
+      "case_category": "abbreviations",
+      "method_used": "unresolved",
+      "confidence_score": 0.11764705882352944,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-12",
+      "entity_a": "Amazon Web Services",
+      "entity_b": "AWS",
+      "expected_match": true,
+      "predicted_match": false,
+      "case_category": "abbreviations",
+      "method_used": "unresolved",
+      "confidence_score": 0.18181818181818177,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-13",
+      "entity_a": "Labs Synthesia",
+      "entity_b": "Synthesia Labs",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "token_reordering",
+      "method_used": "fuzzy",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-14",
+      "entity_a": "AI Research OpenAI",
+      "entity_b": "OpenAI AI Research",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "token_reordering",
+      "method_used": "fuzzy",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-15",
+      "entity_a": "OpenAI",
+      "entity_b": "Microsoft",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "obvious_non_matches",
+      "method_used": "unresolved",
+      "confidence_score": 0.1333333333333333,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-16",
+      "entity_a": "Anthropic",
+      "entity_b": "Google DeepMind",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "obvious_non_matches",
+      "method_used": "unresolved",
+      "confidence_score": 0.16666666666666663,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-17",
+      "entity_a": "Stripe",
+      "entity_b": "Stripe Press",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "ambiguous_similar_names",
+      "method_used": "unresolved",
+      "confidence_score": 0.6666666666666667,
+      "decision": "REVIEW"
+    },
+    {
+      "id": "er-18",
+      "entity_a": "Scale AI",
+      "entity_b": "Scale Studio",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "ambiguous_similar_names",
+      "method_used": "unresolved",
+      "confidence_score": 0.5,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-19",
+      "entity_a": "Cohere",
+      "entity_b": "Cohere Health",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "ambiguous_similar_names",
+      "method_used": "unresolved",
+      "confidence_score": 0.631578947368421,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-20",
+      "entity_a": "ElevenLabs Inc",
+      "entity_b": "ElevenLabs Corporation",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "legal_suffixes",
+      "method_used": "normalized",
+      "confidence_score": 0.95,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-21",
+      "entity_a": "Pinecone Systems",
+      "entity_b": "Pinecone Inc",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "legal_suffixes",
+      "method_used": "exact",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-22",
+      "entity_a": "Weaviate B.V.",
+      "entity_b": "Weaviate",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "legal_suffixes",
+      "method_used": "exact",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-23",
+      "entity_a": "LangChain Inc",
+      "entity_b": "LlamaIndex Inc",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "obvious_non_matches",
+      "method_used": "unresolved",
+      "confidence_score": 0.5263157894736843,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-24",
+      "entity_a": "Databricks",
+      "entity_b": "Snowflake",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "obvious_non_matches",
+      "method_used": "unresolved",
+      "confidence_score": 0.21052631578947367,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-25",
+      "entity_a": "Anyscale Inc",
+      "entity_b": "AnyScale",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "capitalization",
+      "method_used": "normalized",
+      "confidence_score": 0.95,
+      "decision": "MATCH"
+    }
+  ]
+}

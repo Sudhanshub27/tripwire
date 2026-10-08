@@ -20,8 +20,12 @@ from src.dashboard.processed_reader import (
     read_jsonl_records,
 )
 from src.observability.metrics import metrics_collector
+from src.resolution.entity_resolver import EntityResolver
 from src.resolution.graph_linker import graph_linker
+from src.resolution.review_queue import review_queue
 from src.vector.vector_store import vector_store
+
+dashboard_resolver = EntityResolver()
 
 configure_logging(settings.LOG_LEVEL)
 logger = structlog.get_logger(__name__)
@@ -161,12 +165,14 @@ async def get_stats() -> Dict[str, Any]:
             stats_data["llm"] = llm_data
             stats_data["mockMode"] = True
             stats_data["mock_mode"] = True
+            stats_data["incremental"] = metrics_collector.get_incremental_stats()
             return stats_data
 
     # Real data processing pathway
     stats_data = get_processed_stats()
     stats_data["mockMode"] = settings.MOCK_MODE
     stats_data["mock_mode"] = settings.MOCK_MODE
+    stats_data["incremental"] = metrics_collector.get_incremental_stats()
 
     stats_data["status"] = pipeline_state["status"]
     if pipeline_state["status"] == "running":
@@ -226,6 +232,90 @@ async def get_entity_log() -> Dict[str, Any]:
     return get_processed_entity_log()
 
 
+@app.get("/api/resolution/review")
+async def get_resolution_reviews(
+    status: Optional[str] = Query(default="REVIEW", description="Review status filter: REVIEW, APPROVED, REJECTED, ALL")
+) -> List[Dict[str, Any]]:
+    """Fetch persistent entity resolution review queue items."""
+    if status == "ALL":
+        reviews = review_queue.list_all_reviews()
+    elif status:
+        all_revs = review_queue.list_all_reviews()
+        reviews = [r for r in all_revs if r.get("decision") == status.upper()]
+    else:
+        reviews = review_queue.get_pending_reviews()
+
+    if not reviews and settings.MOCK_MODE:
+        return [
+            {
+                "id": "rev-00101",
+                "candidate": "Open AI Inc",
+                "canonical": "OpenAI",
+                "matching_method": "fuzzy",
+                "fuzzy_score": 0.86,
+                "confidence": 0.82,
+                "decision": "REVIEW",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "TechCrunch RSS",
+                "match_reason": "Ambiguous fuzzy similarity (86.0%) in review range [65.0%, 85.0%)",
+            },
+            {
+                "id": "rev-00102",
+                "candidate": "Anthropic AI Labs",
+                "canonical": "Anthropic",
+                "matching_method": "fuzzy",
+                "fuzzy_score": 0.78,
+                "confidence": 0.75,
+                "decision": "REVIEW",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "ProductHunt Feed",
+                "match_reason": "Ambiguous fuzzy similarity (78.0%) in review range [65.0%, 85.0%)",
+            },
+        ]
+    return reviews
+
+
+@app.post("/api/resolution/review/{id}/approve")
+async def approve_resolution_review(id: str) -> Dict[str, Any]:
+    """Approve ambiguous entity resolution match, merging candidate into canonical entity."""
+    updated = review_queue.approve_review(id)
+    if not updated:
+        if settings.MOCK_MODE:
+            return {
+                "status": "approved",
+                "review": {
+                    "id": id,
+                    "candidate": "Open AI Inc",
+                    "canonical": "OpenAI",
+                    "decision": "APPROVED",
+                },
+            }
+        raise HTTPException(status_code=404, detail=f"Review item '{id}' not found")
+
+    dashboard_resolver.add_approved_alias(updated["candidate"], updated["canonical"])
+    return {"status": "approved", "review": updated}
+
+
+@app.post("/api/resolution/review/{id}/reject")
+async def reject_resolution_review(id: str) -> Dict[str, Any]:
+    """Reject ambiguous entity resolution match, keeping candidate as a separate NEW entity."""
+    updated = review_queue.reject_review(id)
+    if not updated:
+        if settings.MOCK_MODE:
+            return {
+                "status": "rejected",
+                "review": {
+                    "id": id,
+                    "candidate": "Open AI Inc",
+                    "canonical": "OpenAI",
+                    "decision": "REJECTED",
+                },
+            }
+        raise HTTPException(status_code=404, detail=f"Review item '{id}' not found")
+
+    return {"status": "rejected", "review": updated}
+
+
 def get_latest_actual_benchmark_report() -> Optional[Dict[str, Any]]:
     """Locate and return the contents of the latest actual benchmark JSON report in evaluation/reports/."""
     reports_dir = settings.BASE_DIR / "evaluation" / "reports"
@@ -271,6 +361,45 @@ async def get_benchmark_report() -> Dict[str, Any]:
     return get_live_benchmark_metrics()
 
 
+def get_latest_incremental_benchmark_report() -> Optional[Dict[str, Any]]:
+    """Locate and return contents of incremental benchmark report in evaluation/reports/."""
+    inc_file = settings.BASE_DIR / "evaluation" / "reports" / "incremental_benchmark.json"
+    if inc_file.exists() and inc_file.stat().st_size > 0:
+        try:
+            with open(inc_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning("Failed reading incremental benchmark report file", file=str(inc_file), error=str(e))
+    return None
+
+
+@app.get("/api/benchmark/incremental")
+async def get_incremental_benchmark_report_endpoint() -> Dict[str, Any]:
+    """Fetch the latest Phase 2 Incremental Processing benchmark JSON report."""
+    report = get_latest_incremental_benchmark_report()
+    if report:
+        return report
+
+    stats = metrics_collector.get_incremental_stats()
+    return {
+        "metadata": {
+            "mode": "live",
+            "benchmark_name": "live_incremental_metrics",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        "summary": {
+            "discovered": stats.get("incremental_total", 0),
+            "new": stats.get("incremental_new", 0),
+            "changed": stats.get("incremental_changed", 0),
+            "unchanged": stats.get("incremental_unchanged", 0),
+            "skipped": stats.get("incremental_skipped", 0),
+            "llm_calls_saved": stats.get("llm_calls_saved", 0),
+            "embedding_calls_saved": stats.get("embedding_calls_saved", 0),
+            "work_avoided_pct": stats.get("work_avoided_pct", 0.0),
+        },
+    }
+
+
 @app.get("/api/graph")
 async def get_knowledge_graph() -> Dict[str, Any]:
     """Fetch Knowledge Graph nodes and relational edges."""
@@ -282,6 +411,67 @@ async def get_knowledge_graph() -> Dict[str, Any]:
 async def export_cypher_graph() -> str:
     """Export Neo4j Cypher import script for Knowledge Graph visualization."""
     return graph_linker.generate_cypher_import_script()
+
+
+@app.get("/api/graph/entity/{entity_id}")
+async def get_graph_entity(entity_id: str) -> Dict[str, Any]:
+    """Look up a single knowledge graph entity by ID or name."""
+    node = graph_linker.get_node(entity_id)
+    if not node:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Entity '{entity_id}' not found in knowledge graph",
+        )
+    return node
+
+
+@app.get("/api/graph/neighbors/{entity_id}")
+async def get_graph_neighbors(
+    entity_id: str,
+    relation: Optional[str] = Query(default=None, description="Filter neighbors by relation type (e.g., PRODUCES, POSTED_BY)"),
+    direction: str = Query(default="both", description="Direction of relations: both, outgoing, incoming"),
+) -> Dict[str, Any]:
+    """Retrieve direct (1-hop) neighbors of an entity in the knowledge graph."""
+    res = graph_linker.get_neighbors(entity_id, relation=relation, direction=direction)
+    if not res:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Entity '{entity_id}' not found in knowledge graph",
+        )
+    return res
+
+
+@app.get("/api/graph/path")
+async def get_graph_path(
+    from_entity: str = Query(..., alias="from", description="Source entity ID or name"),
+    to_entity: str = Query(..., alias="to", description="Target entity ID or name"),
+    max_depth: int = Query(default=5, ge=1, le=10, description="Maximum path search depth (hops)"),
+    relation: Optional[str] = Query(default=None, description="Filter relations along path"),
+) -> Dict[str, Any]:
+    """Discover the shortest path between two entities in the knowledge graph."""
+    res = graph_linker.find_path(from_entity, to_entity, max_depth=max_depth, relation=relation)
+    if not res:
+        raise HTTPException(
+            status_code=404,
+            detail="One or both entities not found in knowledge graph",
+        )
+    return res
+
+
+@app.get("/api/graph/traverse/{entity_id}")
+async def traverse_graph_subgraph(
+    entity_id: str,
+    hops: int = Query(default=2, ge=1, le=10, description="Traversal expansion depth (hops)"),
+    relation: Optional[str] = Query(default=None, description="Filter relations traversed"),
+) -> Dict[str, Any]:
+    """Bounded multi-hop traversal expanding subgraph from an entity root with max-hop guard."""
+    res = graph_linker.traverse(entity_id, hops=hops, relation=relation)
+    if not res:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Entity '{entity_id}' not found in knowledge graph",
+        )
+    return res
 
 
 @app.get("/api/search")

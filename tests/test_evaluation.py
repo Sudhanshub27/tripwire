@@ -15,6 +15,7 @@ import pytest
 from config.settings import settings
 from evaluation.benchmark import run_benchmark
 from evaluation.compare import compare_reports
+from evaluation.incremental_benchmark import run_incremental_benchmark
 from evaluation.metrics import (
     BenchmarkMetricsCollector,
     calculate_stats,
@@ -355,3 +356,31 @@ async def test_repeated_mock_benchmark_reproducibility(tmp_path: Path):
     # 6. Vector search indexed count deterministic match
     assert run1["vector_search"]["indexed_records"] == run2["vector_search"]["indexed_records"] == 10
 
+
+@pytest.mark.asyncio
+async def test_incremental_benchmark_execution(tmp_path: Path):
+    """Test that run_incremental_benchmark completes and generates a valid report structure."""
+    out_file = tmp_path / "incremental_report.json"
+    report = await run_incremental_benchmark(
+        record_count=10,
+        output_path=out_file,
+        mode="mock",
+    )
+
+    assert out_file.exists()
+    assert report["metadata"]["record_count"] == 10
+    assert report["baseline_full_processing"]["records_processed"] == 10
+    assert report["baseline_full_processing"]["llm_calls"] == 10
+    assert report["baseline_full_processing"]["embeddings_generated"] == 10
+
+    # Incremental unchanged checks
+    assert report["incremental_processing_unchanged"]["records_evaluated"] == 10
+    assert report["incremental_processing_unchanged"]["documents_skipped"] == 10
+    assert report["incremental_processing_unchanged"]["skip_percentage"] == 100.0
+    assert report["incremental_processing_unchanged"]["llm_calls"] == 0
+    assert report["incremental_processing_unchanged"]["llm_calls_saved"] == 10
+    assert report["incremental_processing_unchanged"]["embeddings_saved"] == 10
+
+    # Incremental selective checks
+    assert report["incremental_processing_selective_50pct"]["documents_skipped"] == 5
+    assert report["incremental_processing_selective_50pct"]["llm_calls"] == 5

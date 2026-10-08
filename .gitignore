@@ -91,3 +91,26 @@ Thumbs.db
 *.swp
 *.swo
 tmp/
+*~
+*.bak
+*.orig
+*.rej
+*.tmp
+*.temp
+scratch/
+.scratch/
+
+# SQLite temporary locks & journals
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# TypeScript build info cache
+*.tsbuildinfo
+
+# Local script wrappers & aliases
+.run.sh
+rn.sh

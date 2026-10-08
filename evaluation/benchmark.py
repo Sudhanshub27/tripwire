@@ -286,8 +286,25 @@ def main():
         default=str(DEFAULT_OUTPUT_REPORT),
         help=f"Target output JSON report path (default: {DEFAULT_OUTPUT_REPORT})",
     )
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Also run the Phase 2 deterministic incremental benchmark suite",
+    )
 
     args = parser.parse_args()
+
+    if args.incremental:
+        from evaluation.incremental_benchmark import run_incremental_benchmark
+
+        inc_report_path = Path(args.output).parent / "incremental_benchmark.json"
+        asyncio.run(
+            run_incremental_benchmark(
+                record_count=100,
+                output_path=inc_report_path,
+                mode=args.mode,
+            )
+        )
 
     asyncio.run(
         run_benchmark(

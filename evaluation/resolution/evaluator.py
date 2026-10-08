@@ -113,11 +113,36 @@ class EntityResolutionEvaluator:
         # Category breakdown
         category_breakdown = self._compute_category_breakdown(predictions)
 
+        # Compute empirical decision model breakdown
+        decision_counts = {"MATCH": 0, "REVIEW": 0, "NEW": 0}
+        for p in predictions:
+            method = p["method_used"]
+            conf = p["confidence_score"]
+            if method in ("exact", "normalized") or conf >= (fuzzy_threshold / 100.0):
+                dec = "MATCH"
+            elif conf >= 0.65:
+                dec = "REVIEW"
+            else:
+                dec = "NEW"
+            p["decision"] = dec
+            decision_counts[dec] += 1
+
+        total_pairs = len(self.dataset) or 1
+        decision_model = {
+            "counts": decision_counts,
+            "match_threshold": fuzzy_threshold,
+            "review_threshold": 65.0,
+            "match_rate": round(decision_counts["MATCH"] / total_pairs, 4),
+            "review_rate": round(decision_counts["REVIEW"] / total_pairs, 4),
+            "new_rate": round(decision_counts["NEW"] / total_pairs, 4),
+        }
+
         report = {
             "evaluator": "EntityResolutionEvaluator",
             "active_fuzzy_threshold": fuzzy_threshold,
             "total_pairs_evaluated": len(self.dataset),
             "metrics": metrics,
+            "decision_model": decision_model,
             "threshold_analysis": threshold_analysis,
             "category_breakdown": category_breakdown,
             "per_pair_predictions": predictions,
@@ -214,6 +239,36 @@ def print_resolution_evaluation_summary(report: Dict[str, Any]) -> None:
         )
     console.print(table_thresh)
     console.print(f"[bold green]Optimal Recommended Threshold based on Measured Max F1 Score:[/bold green] [yellow]{ta['recommended_threshold']}[/yellow] (F1 = {round(ta['best_f1_score']*100, 2)}%)\n")
+
+    # 4. Confidence Decision Model Breakdown Table
+    if "decision_model" in report:
+        dm = report["decision_model"]
+        table_dm = Table(title="4. Confidence-Based Decision Routing (Empirical Policy)", show_header=True, header_style="bold green")
+        table_dm.add_column("Decision Class", style="cyan", width=24)
+        table_dm.add_column("Condition / Rule", style="white")
+        table_dm.add_column("Count", style="bold yellow", justify="right")
+        table_dm.add_column("Share", style="bold green", justify="right")
+
+        table_dm.add_row(
+            "[bold green]MATCH[/bold green]",
+            f"Exact/Norm or Fuzzy >= {dm['match_threshold']}% (High Precision Auto-merge)",
+            str(dm["counts"]["MATCH"]),
+            f"{round(dm['match_rate'] * 100, 1)}%",
+        )
+        table_dm.add_row(
+            "[bold yellow]REVIEW[/bold yellow]",
+            f"Fuzzy [{dm['review_threshold']}%, {dm['match_threshold']}%) (Ambiguous -> Human Queue)",
+            str(dm["counts"]["REVIEW"]),
+            f"{round(dm['review_rate'] * 100, 1)}%",
+        )
+        table_dm.add_row(
+            "[bold blue]NEW[/bold blue]",
+            f"Fuzzy < {dm['review_threshold']}% (Distinct Entity Creation)",
+            str(dm["counts"]["NEW"]),
+            f"{round(dm['new_rate'] * 100, 1)}%",
+        )
+        console.print(table_dm)
+        console.print("\n")
 
 
 def main():

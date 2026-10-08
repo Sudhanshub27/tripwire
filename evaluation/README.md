@@ -43,6 +43,12 @@ python -m evaluation.benchmark --mode mock --records 20 --iterations 3 --warmup-
 python -m evaluation.benchmark --mode live --records 50 --iterations 3 --warmup-records 5 --output evaluation/reports/live_report.json
 ```
 
+### 3. Incremental Processing Benchmark
+
+```bash
+python -m evaluation.incremental_benchmark --records 20 --output evaluation/reports/incremental_benchmark.json
+```
+
 ---
 
 ## Comparing Benchmark Reports

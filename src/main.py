@@ -24,6 +24,9 @@ Flags:
 
 import argparse
 import asyncio
+import hashlib
+import json
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -35,9 +38,14 @@ from rich.table import Table
 
 from src.export.sheets_export import GoogleSheetsExporter
 from src.llm.fallback_chain import FallbackChain
+from src.observability.metrics import metrics_collector
 from src.resolution.entity_resolver import EntityResolver
 from src.schemas.product import Product
 from src.schemas.startup import Startup
+from src.scrapers.dedup_tracker import (
+    DedupTracker,
+    ProcessingDecision,
+)
 from src.scrapers.freshness import (
     run_freshness_pipeline,
     run_jobs_freshness_pipeline,
@@ -47,6 +55,18 @@ from src.scrapers.research_papers import run_research_papers_pipeline
 
 logger = structlog.get_logger(__name__)
 console = Console()
+
+
+def extract_item_url(raw_html: str, default_prefix: str = "https://graphone.internal/item") -> str:
+    """Extract canonical URL link from raw HTML snippet, or generate deterministic URI."""
+    href_match = re.search(r'href=["\'](https?://[^"\']+)["\']', raw_html, re.I)
+    if href_match:
+        return href_match.group(1).strip()
+    h1_match = re.search(r"<h1[^>]*>([^<]+)</h1>", raw_html, re.I)
+    if h1_match:
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", h1_match.group(1).strip().lower()).strip("-")
+        return f"{default_prefix}/{slug}"
+    return f"{default_prefix}/doc-{hashlib.sha256(raw_html.encode('utf-8')).hexdigest()[:12]}"
 
 
 # ------------------------------------------------------------------------------
@@ -137,12 +157,22 @@ class PipelineOrchestrator:
             self.limit = 5 if dry_run else 20
         self.resolver = EntityResolver()
         self.llm_chain = FallbackChain()
+        self.dedup = DedupTracker()
         self.metrics: Dict[str, Any] = {
             "start_time": time.time(),
             "targets": {},
             "llm_tiers_used": {},
             "resolution_stats": {"exact": 0, "normalized": 0, "fuzzy": 0, "unresolved": 0},
             "validation_failures": 0,
+            "incremental": {
+                "total": 0,
+                "new": 0,
+                "changed": 0,
+                "unchanged": 0,
+                "skipped": 0,
+                "llm_calls_saved": 0,
+                "embedding_calls_saved": 0,
+            },
         }
 
     # --------------------------------------------------------------------------
@@ -150,7 +180,7 @@ class PipelineOrchestrator:
     # --------------------------------------------------------------------------
 
     async def run_startups_pipeline(self) -> int:
-        """Run Startups ingestion: Scraping -> LLM Chain -> Entity Resolver -> Schema Validation -> JSONL."""
+        """Run Startups ingestion: Incremental Check -> LLM Chain -> Entity Resolver -> Schema Validation -> JSONL."""
         logger.info("Executing Startups Ingestion Pipeline", limit=self.limit)
         target_name = "Startups"
         records_written = 0
@@ -158,12 +188,47 @@ class PipelineOrchestrator:
 
         out_records = []
         for raw_html in raw_items:
+            item_url = extract_item_url(raw_html, default_prefix="https://graphone.internal/startups")
+            inc_res = self.dedup.check_incremental(url=item_url, content=raw_html)
+
+            self.metrics["incremental"]["total"] += 1
+            if inc_res.decision == ProcessingDecision.NEW:
+                self.metrics["incremental"]["new"] += 1
+            elif inc_res.decision == ProcessingDecision.CHANGED:
+                self.metrics["incremental"]["changed"] += 1
+            elif inc_res.decision == ProcessingDecision.UNCHANGED:
+                self.metrics["incremental"]["unchanged"] += 1
+
+            if inc_res.is_skip or inc_res.decision == ProcessingDecision.UNCHANGED:
+                self.metrics["incremental"]["skipped"] += 1
+                self.metrics["incremental"]["llm_calls_saved"] += 1
+                self.metrics["incremental"]["embedding_calls_saved"] += 1
+                metrics_collector.record_incremental_decision(
+                    decision=inc_res.decision,
+                    action=inc_res.action,
+                    llm_calls_saved=1,
+                    embedding_calls_saved=1,
+                )
+                logger.info(
+                    "Incremental check skipped unchanged record",
+                    url=item_url,
+                    decision=inc_res.decision.value,
+                    action=inc_res.action.value,
+                )
+                continue
+
+            metrics_collector.record_incremental_decision(
+                decision=inc_res.decision,
+                action=inc_res.action,
+            )
+
             # 1. LLM Extraction
             extracted_dict, tier_used = await self.llm_chain.extract_with_fallback(raw_html, Startup)
             self.metrics["llm_tiers_used"][tier_used] = self.metrics["llm_tiers_used"].get(tier_used, 0) + 1
 
             if not extracted_dict:
                 self.metrics["validation_failures"] += 1
+                self.dedup.record_failed_processing(url=item_url, reason="LLM extraction returned empty")
                 continue
 
             try:
@@ -177,22 +242,42 @@ class PipelineOrchestrator:
 
                 out_records.append(resolved_obj)
                 records_written += 1
+                # Update fingerprint in dedup tracker ONLY after successful downstream processing
+                self.dedup.record_successful_processing(url=item_url, content=raw_html, source=target_name)
             except Exception as e:
                 logger.error("Startup Pydantic validation failed", error=str(e))
                 self.metrics["validation_failures"] += 1
+                self.dedup.record_failed_processing(url=item_url, reason=str(e))
 
-        # Write to data/processed/startups.jsonl
+        # Only update data/processed/startups.jsonl if new/changed records were written
         out_file = settings.DATA_PROCESSED_DIR / "startups.jsonl"
         settings.DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-        with open(out_file, "w", encoding="utf-8") as f:
+        if records_written > 0:
+            existing_recs = []
+            if out_file.exists():
+                try:
+                    with open(out_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip():
+                                existing_recs.append(json.loads(line))
+                except Exception as e:
+                    logger.warning("Could not read existing startups.jsonl", error=str(e))
+
+            rec_map = {r.get("canonical_name") or r.get("name") or (r.get("source") or {}).get("url"): r for r in existing_recs}
             for rec in out_records:
-                f.write(rec.model_dump_json() + "\n")
+                rec_dict = json.loads(rec.model_dump_json())
+                k = rec_dict.get("canonical_name") or rec_dict.get("name") or (rec_dict.get("source") or {}).get("url")
+                rec_map[k] = rec_dict
+
+            with open(out_file, "w", encoding="utf-8") as f:
+                for r in rec_map.values():
+                    f.write(json.dumps(r) + "\n")
 
         self.metrics["targets"][target_name] = {"count": records_written, "status": "success"}
         return records_written
 
     async def run_products_pipeline(self) -> int:
-        """Run Products ingestion: Scraping -> LLM Chain -> Entity Resolver -> Schema Validation -> JSONL."""
+        """Run Products ingestion: Incremental Check -> LLM Chain -> Entity Resolver -> Schema Validation -> JSONL."""
         logger.info("Executing Products Ingestion Pipeline", limit=self.limit)
         target_name = "Products"
         records_written = 0
@@ -200,12 +285,47 @@ class PipelineOrchestrator:
 
         out_records = []
         for raw_html in raw_items:
+            item_url = extract_item_url(raw_html, default_prefix="https://graphone.internal/products")
+            inc_res = self.dedup.check_incremental(url=item_url, content=raw_html)
+
+            self.metrics["incremental"]["total"] += 1
+            if inc_res.decision == ProcessingDecision.NEW:
+                self.metrics["incremental"]["new"] += 1
+            elif inc_res.decision == ProcessingDecision.CHANGED:
+                self.metrics["incremental"]["changed"] += 1
+            elif inc_res.decision == ProcessingDecision.UNCHANGED:
+                self.metrics["incremental"]["unchanged"] += 1
+
+            if inc_res.is_skip or inc_res.decision == ProcessingDecision.UNCHANGED:
+                self.metrics["incremental"]["skipped"] += 1
+                self.metrics["incremental"]["llm_calls_saved"] += 1
+                self.metrics["incremental"]["embedding_calls_saved"] += 1
+                metrics_collector.record_incremental_decision(
+                    decision=inc_res.decision,
+                    action=inc_res.action,
+                    llm_calls_saved=1,
+                    embedding_calls_saved=1,
+                )
+                logger.info(
+                    "Incremental check skipped unchanged record",
+                    url=item_url,
+                    decision=inc_res.decision.value,
+                    action=inc_res.action.value,
+                )
+                continue
+
+            metrics_collector.record_incremental_decision(
+                decision=inc_res.decision,
+                action=inc_res.action,
+            )
+
             # 1. LLM Extraction
             extracted_dict, tier_used = await self.llm_chain.extract_with_fallback(raw_html, Product)
             self.metrics["llm_tiers_used"][tier_used] = self.metrics["llm_tiers_used"].get(tier_used, 0) + 1
 
             if not extracted_dict:
                 self.metrics["validation_failures"] += 1
+                self.dedup.record_failed_processing(url=item_url, reason="LLM extraction returned empty")
                 continue
 
             try:
@@ -219,16 +339,36 @@ class PipelineOrchestrator:
 
                 out_records.append(resolved_obj)
                 records_written += 1
+                # Update fingerprint in dedup tracker ONLY after successful downstream processing
+                self.dedup.record_successful_processing(url=item_url, content=raw_html, source=target_name)
             except Exception as e:
                 logger.error("Product Pydantic validation failed", error=str(e))
                 self.metrics["validation_failures"] += 1
+                self.dedup.record_failed_processing(url=item_url, reason=str(e))
 
-        # Write to data/processed/products.jsonl
+        # Only update data/processed/products.jsonl if new/changed records were written
         out_file = settings.DATA_PROCESSED_DIR / "products.jsonl"
         settings.DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-        with open(out_file, "w", encoding="utf-8") as f:
+        if records_written > 0:
+            existing_recs = []
+            if out_file.exists():
+                try:
+                    with open(out_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip():
+                                existing_recs.append(json.loads(line))
+                except Exception as e:
+                    logger.warning("Could not read existing products.jsonl", error=str(e))
+
+            rec_map = {r.get("canonical_name") or r.get("name") or (r.get("source") or {}).get("url"): r for r in existing_recs}
             for rec in out_records:
-                f.write(rec.model_dump_json() + "\n")
+                rec_dict = json.loads(rec.model_dump_json())
+                k = rec_dict.get("canonical_name") or rec_dict.get("name") or (rec_dict.get("source") or {}).get("url")
+                rec_map[k] = rec_dict
+
+            with open(out_file, "w", encoding="utf-8") as f:
+                for r in rec_map.values():
+                    f.write(json.dumps(r) + "\n")
 
         self.metrics["targets"][target_name] = {"count": records_written, "status": "success"}
         return records_written
@@ -315,6 +455,17 @@ class PipelineOrchestrator:
         metrics_table.add_row("LLM Tiers Succeeded", llm_str)
         metrics_table.add_row("Entity Resolution Methods", res_str)
 
+        inc = self.metrics.get("incremental", {})
+        if inc.get("total", 0) > 0:
+            avoided_pct = round((inc.get("skipped", 0) / max(inc.get("total", 1), 1)) * 100.0, 1)
+            inc_str = (
+                f"Total: {inc.get('total', 0)} (New: {inc.get('new', 0)}, "
+                f"Changed: {inc.get('changed', 0)}, Skipped: {inc.get('skipped', 0)}) | "
+                f"Avoided: {avoided_pct}% | "
+                f"Saved: {inc.get('llm_calls_saved', 0)} LLMs, {inc.get('embedding_calls_saved', 0)} Embeddings"
+            )
+            metrics_table.add_row("Incremental Dedup Decision", inc_str)
+
         if sheet_info:
             metrics_table.add_row("Google Sheets Export Status", sheet_info.get("mode", "N/A"))
             metrics_table.add_row("Shareable Spreadsheet Link", f"[link={sheet_info.get('public_link')}]{sheet_info.get('public_link')}[/link]")
@@ -345,6 +496,7 @@ def main():
     export_parser = subparsers.add_parser("export", help="Export processed data to Google Sheets")
     export_parser.add_argument("dest", choices=["sheets"], help="Destination format (sheets)")
     export_parser.add_argument("--dry-run", action="store_true", help="Perform local CSV export fallback")
+    export_parser.add_argument("--limit", type=int, default=20, help="Max items to process (ignored for full export)")
 
     args = parser.parse_args()
 

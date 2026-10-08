@@ -8,7 +8,7 @@ entity resolution merger counts, and a Prometheus-formatted /metrics endpoint ou
 ================================================================================
 """
 
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 import structlog
 
@@ -58,6 +58,14 @@ class MetricsCollector:
             "fuzzy": 0,
             "unresolved": 0,
         }
+        # Incremental processing counters
+        self.incremental_total: int = 0
+        self.incremental_new: int = 0
+        self.incremental_changed: int = 0
+        self.incremental_unchanged: int = 0
+        self.incremental_skipped: int = 0
+        self.llm_calls_saved: int = 0
+        self.embedding_calls_saved: int = 0
 
     def record_ingested_entity(self, entity_type: str, count: int = 1):
         """Record newly ingested entity count."""
@@ -83,6 +91,60 @@ class MetricsCollector:
             self.er_merges[m] += 1
         else:
             self.er_merges["unresolved"] += 1
+
+    def record_incremental_decision(
+        self,
+        decision: Any,
+        action: Optional[Any] = None,
+        llm_calls_saved: int = 0,
+        embedding_calls_saved: int = 0,
+    ):
+        """Record incremental decision telemetry and saved resource calls."""
+        self.incremental_total += 1
+        d_raw = decision.value if hasattr(decision, "value") else str(decision)
+        d = d_raw.upper()
+        if d == "NEW":
+            self.incremental_new += 1
+        elif d == "CHANGED":
+            self.incremental_changed += 1
+        elif d == "UNCHANGED":
+            self.incremental_unchanged += 1
+
+        a_raw = action.value if hasattr(action, "value") else (str(action) if action is not None else None)
+        act = str(a_raw or ("SKIP" if d == "UNCHANGED" else "PROCESS")).upper()
+        if act == "SKIP":
+            self.incremental_skipped += 1
+
+        self.llm_calls_saved += llm_calls_saved
+        self.embedding_calls_saved += embedding_calls_saved
+
+    def reset_incremental_metrics(self):
+        """Reset incremental counters (useful for isolated benchmark runs or tests)."""
+        self.incremental_total = 0
+        self.incremental_new = 0
+        self.incremental_changed = 0
+        self.incremental_unchanged = 0
+        self.incremental_skipped = 0
+        self.llm_calls_saved = 0
+        self.embedding_calls_saved = 0
+
+    def get_incremental_stats(self) -> Dict[str, Any]:
+        """Return snapshot of incremental processing metrics including calculated work avoided percentage."""
+        work_avoided_pct = (
+            round((self.incremental_skipped / self.incremental_total) * 100.0, 1)
+            if self.incremental_total > 0
+            else 0.0
+        )
+        return {
+            "incremental_total": self.incremental_total,
+            "incremental_new": self.incremental_new,
+            "incremental_changed": self.incremental_changed,
+            "incremental_unchanged": self.incremental_unchanged,
+            "incremental_skipped": self.incremental_skipped,
+            "llm_calls_saved": self.llm_calls_saved,
+            "embedding_calls_saved": self.embedding_calls_saved,
+            "work_avoided_pct": work_avoided_pct,
+        }
 
     def generate_prometheus_format(self) -> str:
         """Generate Prometheus exposition text format for /metrics scraping."""
@@ -121,6 +183,31 @@ class MetricsCollector:
         ])
         for method, count in self.er_merges.items():
             lines.append(f'graphone_entity_resolution_merges_total{{method="{method}"}} {count}')
+
+        # Incremental Processing Prometheus Counters
+        lines.extend([
+            "# HELP graphone_incremental_total Total incremental processing checks evaluated.",
+            "# TYPE graphone_incremental_total counter",
+            f"graphone_incremental_total {self.incremental_total}",
+            "# HELP graphone_incremental_new Total new documents evaluated.",
+            "# TYPE graphone_incremental_new counter",
+            f"graphone_incremental_new {self.incremental_new}",
+            "# HELP graphone_incremental_changed Total documents with changed content.",
+            "# TYPE graphone_incremental_changed counter",
+            f"graphone_incremental_changed {self.incremental_changed}",
+            "# HELP graphone_incremental_unchanged Total documents with unchanged content.",
+            "# TYPE graphone_incremental_unchanged counter",
+            f"graphone_incremental_unchanged {self.incremental_unchanged}",
+            "# HELP graphone_incremental_skipped Total documents skipped from reprocessing.",
+            "# TYPE graphone_incremental_skipped counter",
+            f"graphone_incremental_skipped {self.incremental_skipped}",
+            "# HELP graphone_llm_calls_saved_total Total LLM calls saved via incremental skipping.",
+            "# TYPE graphone_llm_calls_saved_total counter",
+            f"graphone_llm_calls_saved_total {self.llm_calls_saved}",
+            "# HELP graphone_embedding_calls_saved_total Total embedding calls saved via incremental skipping.",
+            "# TYPE graphone_embedding_calls_saved_total counter",
+            f"graphone_embedding_calls_saved_total {self.embedding_calls_saved}",
+        ])
 
         return "\n".join(lines) + "\n"
 

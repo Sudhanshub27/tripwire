@@ -93,7 +93,9 @@ class FreshnessPipelineScraper(AsyncScraper):
                                     continue
                                 story_link = item.get("url") or f"https://news.ycombinator.com/item?id={sid}"
 
-                                if self.dedup.is_seen(story_link):
+                                title = item.get("title", "HN Story")
+                                inc_res = self.dedup.check_incremental(story_link, content=title)
+                                if inc_res.action == "SKIP":
                                     continue
 
                                 pub_timestamp = item.get("time")
@@ -103,7 +105,6 @@ class FreshnessPipelineScraper(AsyncScraper):
                                     else normalize_date(None, record_id=f"hn_{sid}")
                                 )
 
-                                title = item.get("title", "HN Story")
                                 news_obj = News(
                                     title=title,
                                     summary=title,
@@ -114,7 +115,7 @@ class FreshnessPipelineScraper(AsyncScraper):
                                     sentiment_score=0.75,
                                     source=SourceMetadata(name="Hacker News API", url=story_link),
                                 )
-                                self.dedup.mark_seen(story_link, source="Hacker News API")
+                                self.dedup.save_record(story_link, content=title, source="Hacker News API")
                                 results.append((news_obj, pub_dt))
         except Exception as e:
             logger.error("Hacker News API crawl failed", error=str(e))
@@ -132,7 +133,7 @@ class FreshnessPipelineScraper(AsyncScraper):
 
             for entry in feed.entries[:limit]:
                 link = entry.get("link")
-                if not link or self.dedup.is_seen(link):
+                if not link:
                     continue
 
                 title = entry.get("title", "Untitled").strip()
@@ -143,18 +144,23 @@ class FreshnessPipelineScraper(AsyncScraper):
 
                 # Extract full text using trafilatura
                 full_text = await self.fetch_full_text_trafilatura(link)
+                article_content = full_text or summary
+
+                inc_res = self.dedup.check_incremental(link, content=article_content)
+                if inc_res.action == "SKIP":
+                    continue
 
                 news_obj = News(
                     title=title,
                     summary=summary[:500],
-                    content=full_text or summary,
+                    content=article_content,
                     author=entry.get("author"),
                     published_at=pub_dt.isoformat(),
                     categories_tags=[source_name, "AI News"],
                     sentiment_score=0.8,
                     source=SourceMetadata(name=source_name, url=link),
                 )
-                self.dedup.mark_seen(link, source=source_name)
+                self.dedup.save_record(link, content=article_content, source=source_name)
                 results.append((news_obj, pub_dt))
 
         except Exception as e:
@@ -167,7 +173,7 @@ class FreshnessPipelineScraper(AsyncScraper):
             ("TechCrunch AI", "https://techcrunch.com/category/artificial-intelligence/feed/"),
             ("VentureBeat AI", "https://venturebeat.com/category/ai/feed/"),
             ("MIT Tech Review AI", "https://www.technologyreview.com/topic/artificial-intelligence/feed/"),
-            ("ArXiv AI News", "http://export.arxiv.org/rss/cs.AI"),
+            ("ArXiv AI News", "https://export.arxiv.org/rss/cs.AI"),
         ]
 
         tasks = [self.crawl_hacker_news(limit=limit_per_source)]
@@ -206,11 +212,14 @@ class FreshnessPipelineScraper(AsyncScraper):
                             if not isinstance(job_item, dict):
                                 continue
                             job_url = job_item.get("url") or f"https://remoteok.com/remote-jobs/{job_item.get('id')}"
-                            if self.dedup.is_seen(job_url):
-                                continue
-
                             title = job_item.get("position", "Developer").strip()
                             company = job_item.get("company", "Tech Company").strip()
+                            job_content = f"{title} {company} {job_item.get('description', '')}"
+
+                            inc_res = self.dedup.check_incremental(job_url, content=job_content)
+                            if inc_res.action == "SKIP":
+                                continue
+
                             pub_date = job_item.get("date")
                             pub_dt = normalize_date(pub_date, record_id=f"{company}_{title}")
 
@@ -230,7 +239,7 @@ class FreshnessPipelineScraper(AsyncScraper):
                                 apply_url=job_url,
                                 source=SourceMetadata(name="RemoteOK API", url=job_url),
                             )
-                            self.dedup.mark_seen(job_url, source="RemoteOK API")
+                            self.dedup.save_record(job_url, content=job_content, source="RemoteOK API")
                             results.append((job_obj, pub_dt))
         except Exception as e:
             logger.error("RemoteOK API crawl failed", error=str(e))
@@ -249,11 +258,17 @@ class FreshnessPipelineScraper(AsyncScraper):
                     jobs = data.get("jobs", [])
                     for job_item in jobs[:limit]:
                         job_url = job_item.get("url")
-                        if not job_url or self.dedup.is_seen(job_url):
+                        if not job_url:
                             continue
 
                         title = job_item.get("title", "Developer")
                         company = job_item.get("company_name", "Remote Company")
+                        job_content = f"{title} {company} {job_item.get('description', '')}"
+
+                        inc_res = self.dedup.check_incremental(job_url, content=job_content)
+                        if inc_res.action == "SKIP":
+                            continue
+
                         pub_date = job_item.get("publication_date")
                         pub_dt = normalize_date(pub_date, record_id=f"rem_{title}")
 
@@ -269,7 +284,7 @@ class FreshnessPipelineScraper(AsyncScraper):
                             apply_url=job_url,
                             source=SourceMetadata(name="Remotive API", url=job_url),
                         )
-                        self.dedup.mark_seen(job_url, source="Remotive API")
+                        self.dedup.save_record(job_url, content=job_content, source="Remotive API")
                         results.append((job_obj, pub_dt))
         except Exception as e:
             logger.error("Remotive Jobs crawl failed", error=str(e))
@@ -287,7 +302,7 @@ class FreshnessPipelineScraper(AsyncScraper):
 
             for entry in feed.entries[:limit]:
                 link = entry.get("link")
-                if not link or self.dedup.is_seen(link):
+                if not link:
                     continue
 
                 raw_title = entry.get("title", "Software Engineer").strip()
@@ -299,6 +314,11 @@ class FreshnessPipelineScraper(AsyncScraper):
                 elif ":" in raw_title:
                     parts = raw_title.split(":", 1)
                     company, title = parts[0].strip(), parts[1].strip()
+
+                job_content = f"{title} {company} {entry.get('summary', '')}"
+                inc_res = self.dedup.check_incremental(link, content=job_content)
+                if inc_res.action == "SKIP":
+                    continue
 
                 pub_date = entry.get("published") or entry.get("updated")
                 pub_dt = normalize_date(pub_date, record_id=title[:20])
@@ -315,8 +335,9 @@ class FreshnessPipelineScraper(AsyncScraper):
                     apply_url=link,
                     source=SourceMetadata(name=source_name, url=link),
                 )
-                self.dedup.mark_seen(link, source=source_name)
+                self.dedup.save_record(link, content=job_content, source=source_name)
                 results.append((job_obj, pub_dt))
+
 
         except Exception as e:
             logger.error("RSS Job board crawl failed", source=source_name, error=str(e))

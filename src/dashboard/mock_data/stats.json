@@ -23,5 +23,15 @@
       "count": 110,
       "sparkline": [85, 92, 98, 102, 105, 108, 110]
     }
+  },
+  "incremental": {
+    "incremental_total": 300,
+    "incremental_new": 100,
+    "incremental_changed": 10,
+    "incremental_unchanged": 190,
+    "incremental_skipped": 190,
+    "llm_calls_saved": 190,
+    "embedding_calls_saved": 190,
+    "work_avoided_pct": 63.3
   }
 }

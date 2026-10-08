@@ -194,15 +194,27 @@ def get_processed_entity_log() -> Dict[str, Any]:
         method = r.get("method_used", "unresolved")
         conf = float(r.get("confidence_score", 0.5))
 
+        dec = r.get("final_decision") or r.get("decision") or (
+            "MATCH" if r.get("status") == "merged" else ("REVIEW" if r.get("status") == "needs_review" else "NEW")
+        )
+        fuzzy_val = float(r.get("fuzzy_score", conf))
+
         entry = {
             "id": r.get("id") or f"er-{idx + 1001}",
             "entity_name": canon_name if canon_name else raw_name,
             "raw_name": raw_name,
+            "candidate": r.get("candidate") or raw_name,
             "canonical_name": canon_name,
+            "canonical": r.get("canonical") or canon_name,
             "entity_type": r.get("entity_type") or "startup",
             "method_used": method,
             "confidence_score": conf,
-            "status": r.get("status") or ("merged" if canon_name and method != "unresolved" else ("needs_review" if conf >= 0.5 else "kept_separate")),
+            "fuzzy_score": fuzzy_val,
+            "decision": dec,
+            "final_decision": dec,
+            "source": r.get("source") or "pipeline",
+            "match_reason": r.get("match_reason") or "",
+            "status": r.get("status") or ("merged" if dec == "MATCH" else ("needs_review" if dec == "REVIEW" else "kept_separate")),
             "timestamp": r.get("timestamp") or datetime.now(timezone.utc).isoformat(),
         }
         formatted_entries.append(entry)
@@ -211,6 +223,9 @@ def get_processed_entity_log() -> Dict[str, Any]:
     norm = sum(1 for r in formatted_entries if r["method_used"] == "normalized")
     fuzzy = sum(1 for r in formatted_entries if r["method_used"] == "fuzzy")
     unres = sum(1 for r in formatted_entries if r["method_used"] == "unresolved")
+    matches = sum(1 for r in formatted_entries if r["decision"] == "MATCH")
+    reviews = sum(1 for r in formatted_entries if r["decision"] == "REVIEW")
+    news = sum(1 for r in formatted_entries if r["decision"] == "NEW")
     total = len(formatted_entries) or 1
 
     return {
@@ -224,6 +239,9 @@ def get_processed_entity_log() -> Dict[str, Any]:
             "fuzzyPct": round((fuzzy / total) * 100, 1),
             "unresolvedCount": unres,
             "unresolvedPct": round((unres / total) * 100, 1),
+            "matchCount": matches,
+            "reviewCount": reviews,
+            "newCount": news,
         },
         "entries": formatted_entries,
     }

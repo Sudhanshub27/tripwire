@@ -246,7 +246,34 @@ python -m evaluation.llm.evaluator --provider chain --output evaluation/reports/
 
 # Run Entity Resolution engine evaluation & threshold sweep
 python -m evaluation.resolution.evaluator --threshold 85.0 --output evaluation/reports/resolution_eval.json
+
+# Run Incremental Processing Benchmark (Baseline vs Incremental vs 50% Updates)
+python -m evaluation.incremental_benchmark --records 20 --output evaluation/reports/incremental_benchmark.json
 ```
+
+### Empirical Benchmark: Baseline vs Incremental Processing
+
+Tripwire implements content-fingerprint incremental processing on top of `DedupTracker` (`data/processed/dedup_tracker.db`). If a source URL's whitespace-normalized content hash has not changed, LLM extraction and vector embedding generation are bypassed completely (`UNCHANGED` → `SKIP`), and processed data is preserved without unnecessary writes. When content changes, it is reprocessed and the stored SHA-256 fingerprint is updated (`CHANGED` → `PROCESS`).
+
+The benchmark suite (`evaluation/incremental_benchmark.py`) empirically measures resource consumption and latency across 20 evaluation records:
+
+| Metric | Baseline (Full Processing) | Incremental (Unchanged Content) | Incremental (50% Updates) | Measured Efficiency Gain |
+| :--- | :---: | :---: | :---: | :---: |
+| **Records Evaluated** | 20 | 20 | 20 | — |
+| **Documents Skipped** | 0 (0.0%) | **20 (100.0%)** | 10 (50.0%) | **100% skip rate on unchanged** |
+| **LLM Calls Executed** | 20 | **0 (20 saved)** | 10 (10 saved) | **100% LLM cost avoidance** |
+| **Embeddings Generated** | 20 | **0 (20 saved)** | 10 (10 saved) | **100% embedding calls saved** |
+| **Wall Execution Time** | 0.1259s | **0.0080s** | 0.0278s | **15.75x speedup (93.65% latency reduction)** |
+| **Throughput (rec/sec)** | 158.8 rec/s | **2501.8 rec/s** | 718.3 rec/s | **+1475% throughput increase** |
+
+Prometheus metrics exposed at `/metrics`:
+* `graphone_incremental_total`: Total documents evaluated by the incremental decision engine.
+* `graphone_incremental_new`: Count of newly discovered URLs.
+* `graphone_incremental_changed`: Count of existing URLs with updated content fingerprints.
+* `graphone_incremental_unchanged`: Count of existing URLs with identical content fingerprints.
+* `graphone_incremental_skipped`: Total document reprocessings skipped.
+* `graphone_llm_calls_saved_total`: Cumulative LLM extraction invocations saved.
+* `graphone_embedding_calls_saved_total`: Cumulative dense vector embeddings saved.
 
 For detailed metrics descriptions, scientific methodologies, and report specifications, refer to:
 * [`evaluation/README.md`](evaluation/README.md)
