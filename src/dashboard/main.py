@@ -33,6 +33,11 @@ from src.observability.metrics import metrics_collector
 from src.resolution.entity_resolver import EntityResolver
 from src.resolution.graph_linker import graph_linker
 from src.resolution.review_queue import review_queue
+from src.retrieval import (
+    HybridRetrievalRequest,
+    HybridRetrievalResponse,
+    hybrid_retrieval_service,
+)
 from src.vector.vector_store import vector_store
 
 dashboard_resolver = EntityResolver()
@@ -704,6 +709,23 @@ async def search_vector_store(
 async def reindex_vector_store() -> Dict[str, Any]:
     """Reindex all JSONL entity records into vector storage."""
     return vector_store.index_all_records()
+
+
+@app.post("/retrieval/hybrid", response_model=HybridRetrievalResponse)
+@app.post("/api/retrieval/hybrid", response_model=HybridRetrievalResponse)
+async def query_hybrid_retrieval(req: HybridRetrievalRequest) -> HybridRetrievalResponse:
+    """
+    Genuine Graph + Vector Hybrid Retrieval Endpoint.
+    Combines dense semantic vector retrieval with Knowledge Graph multi-hop expansion,
+    deduplicates candidates by stable identifiers, and ranks via weighted fusion or RRF.
+    """
+    try:
+        return hybrid_retrieval_service.search_hybrid(req)
+    except Exception as e:
+        logger.error("Hybrid retrieval execution failed", error=str(e), query=req.query)
+        metrics_collector.hybrid_query_errors += 1
+        raise HTTPException(status_code=500, detail=f"Hybrid retrieval failed: {str(e)}")
+
 
 
 @app.get("/api/logs")

@@ -1,0 +1,110 @@
+[
+  {
+    "query_id": "q_01",
+    "query": "Anthropic AI frontier research and Claude reasoning models",
+    "description": "Multi-hop relationship query testing vector match of seed and graph expansion to connected product",
+    "candidate_type": "all",
+    "seed_entity": "Anthropic",
+    "expected_relevant_ids": [
+      "node-startup-anthropic",
+      "node-product-claude-3.5-sonnet"
+    ],
+    "graded_relevance": {
+      "node-startup-anthropic": 3.0,
+      "node-product-claude-3.5-sonnet": 3.0
+    }
+  },
+  {
+    "query_id": "q_02",
+    "query": "Autonomous AI data pipeline ingestion platform",
+    "description": "Vector-heavy query on startup with no graph edges to verify isolated node handling",
+    "candidate_type": "startup",
+    "seed_entity": "Cogna AI",
+    "expected_relevant_ids": [
+      "node-startup-cogna-ai"
+    ],
+    "graded_relevance": {
+      "node-startup-cogna-ai": 3.0
+    }
+  },
+  {
+    "query_id": "q_03",
+    "query": "Transformer attention neural network architectures",
+    "description": "Research paper domain query testing dense semantic text matching",
+    "candidate_type": "research_paper",
+    "seed_entity": "Attention Is All You Need",
+    "expected_relevant_ids": [
+      "node-paper-attention-is-all-you"
+    ],
+    "graded_relevance": {
+      "node-paper-attention-is-all-you": 3.0
+    }
+  },
+  {
+    "query_id": "q_04",
+    "query": "Claude 3.5 Sonnet maker and foundation startup",
+    "description": "Reverse graph relationship query testing traversal from product to maker startup",
+    "candidate_type": "all",
+    "seed_entity": "Claude 3.5 Sonnet",
+    "expected_relevant_ids": [
+      "node-product-claude-3.5-sonnet",
+      "node-startup-anthropic"
+    ],
+    "graded_relevance": {
+      "node-product-claude-3.5-sonnet": 3.0,
+      "node-startup-anthropic": 2.0
+    }
+  },
+  {
+    "query_id": "q_05",
+    "query": "Mistral AI frontier open weights models Paris",
+    "description": "Direct startup lookup verifying precision and deduplication",
+    "candidate_type": "startup",
+    "seed_entity": "Mistral AI",
+    "expected_relevant_ids": [
+      "node-startup-mistral-ai"
+    ],
+    "graded_relevance": {
+      "node-startup-mistral-ai": 3.0
+    }
+  },
+  {
+    "query_id": "q_06",
+    "query": "Real-time AI voice agents for enterprise Synthflow",
+    "description": "Product discovery query testing vector scoring and payload retrieval",
+    "candidate_type": "product",
+    "seed_entity": "SynthFlow Voice 2.0",
+    "expected_relevant_ids": [
+      "node-product-synthflow-voice-2.0"
+    ],
+    "graded_relevance": {
+      "node-product-synthflow-voice-2.0": 3.0
+    }
+  },
+  {
+    "query_id": "q_07",
+    "query": "Deep residual learning for image recognition Kaiming He",
+    "description": "Computer vision foundational research paper matching author and title",
+    "candidate_type": "research_paper",
+    "seed_entity": "Deep Residual Learning for Image Recognition",
+    "expected_relevant_ids": [
+      "node-paper-deep-residual-learni"
+    ],
+    "graded_relevance": {
+      "node-paper-deep-residual-learni": 3.0
+    }
+  },
+  {
+    "query_id": "q_08",
+    "query": "Cursor AI code editor pair programming by Anysphere",
+    "description": "Developer tools product retrieval testing multi-word title matches",
+    "candidate_type": "product",
+    "seed_entity": "Cursor AI Editor",
+    "expected_relevant_ids": [
+      "node-product-cursor-ai-editor"
+    ],
+    "graded_relevance": {
+      "node-product-cursor-ai-editor": 3.0
+    }
+  }
+]

@@ -92,6 +92,16 @@ class MetricsCollector:
         self.graph_nodes_visited: int = 0
         self.graph_nodes_returned: int = 0
         self.graph_results_truncated: int = 0
+        # Hybrid retrieval metrics (Phase 5)
+        self.hybrid_queries_total: int = 0
+        self.hybrid_query_errors: int = 0
+        self.hybrid_query_latency_sum: float = 0.0
+        self.hybrid_query_latency_count: int = 0
+        self.hybrid_vector_candidates: int = 0
+        self.hybrid_graph_candidates: int = 0
+        self.hybrid_merged_candidates: int = 0
+        self.hybrid_final_results: int = 0
+        self.hybrid_graph_expansions_truncated: int = 0
 
     def record_ingested_entity(self, entity_type: str, count: int = 1):
         """Record newly ingested entity count."""
@@ -309,6 +319,60 @@ class MetricsCollector:
             "graph_results_truncated": self.graph_results_truncated,
         }
 
+    def record_hybrid_query(
+        self,
+        latency_seconds: float,
+        vector_candidates: int = 0,
+        graph_candidates: int = 0,
+        merged_candidates: int = 0,
+        final_results: int = 0,
+        is_graph_truncated: bool = False,
+        is_error: bool = False,
+    ):
+        """Record hybrid vector + graph retrieval execution telemetry."""
+        self.hybrid_queries_total += 1
+        if is_error:
+            self.hybrid_query_errors += 1
+
+        self.hybrid_query_latency_sum += float(latency_seconds)
+        self.hybrid_query_latency_count += 1
+        self.hybrid_vector_candidates += int(vector_candidates)
+        self.hybrid_graph_candidates += int(graph_candidates)
+        self.hybrid_merged_candidates += int(merged_candidates)
+        self.hybrid_final_results += int(final_results)
+        if is_graph_truncated:
+            self.hybrid_graph_expansions_truncated += 1
+
+    def reset_hybrid_metrics(self):
+        """Reset hybrid retrieval metrics counters."""
+        self.hybrid_queries_total = 0
+        self.hybrid_query_errors = 0
+        self.hybrid_query_latency_sum = 0.0
+        self.hybrid_query_latency_count = 0
+        self.hybrid_vector_candidates = 0
+        self.hybrid_graph_candidates = 0
+        self.hybrid_merged_candidates = 0
+        self.hybrid_final_results = 0
+        self.hybrid_graph_expansions_truncated = 0
+
+    def get_hybrid_metrics(self) -> Dict[str, Any]:
+        """Return snapshot of hybrid retrieval metrics."""
+        avg_lat = (
+            round((self.hybrid_query_latency_sum / self.hybrid_query_latency_count) * 1000.0, 2)
+            if self.hybrid_query_latency_count > 0
+            else 0.0
+        )
+        return {
+            "hybrid_queries_total": self.hybrid_queries_total,
+            "hybrid_query_errors": self.hybrid_query_errors,
+            "hybrid_query_avg_latency_ms": avg_lat,
+            "hybrid_vector_candidates_total": self.hybrid_vector_candidates,
+            "hybrid_graph_candidates_total": self.hybrid_graph_candidates,
+            "hybrid_merged_candidates_total": self.hybrid_merged_candidates,
+            "hybrid_final_results_total": self.hybrid_final_results,
+            "hybrid_graph_expansions_truncated": self.hybrid_graph_expansions_truncated,
+        }
+
     def generate_prometheus_format(self) -> str:
         """Generate Prometheus exposition text format for /metrics scraping."""
         lines: List[str] = [
@@ -429,6 +493,35 @@ class MetricsCollector:
             "# HELP graphone_graph_results_truncated_total Total query executions where results were truncated.",
             "# TYPE graphone_graph_results_truncated_total counter",
             f"graphone_graph_results_truncated_total {self.graph_results_truncated}",
+        ])
+
+        # Hybrid Retrieval Prometheus Metrics (Phase 5)
+        hybrid_stats = self.get_hybrid_metrics()
+        lines.extend([
+            "# HELP graphone_hybrid_queries_total Total hybrid vector+graph queries executed.",
+            "# TYPE graphone_hybrid_queries_total counter",
+            f"graphone_hybrid_queries_total {self.hybrid_queries_total}",
+            "# HELP graphone_hybrid_query_errors_total Total hybrid queries resulting in errors.",
+            "# TYPE graphone_hybrid_query_errors_total counter",
+            f"graphone_hybrid_query_errors_total {self.hybrid_query_errors}",
+            "# HELP graphone_hybrid_query_avg_latency_seconds Average hybrid query execution latency in seconds.",
+            "# TYPE graphone_hybrid_query_avg_latency_seconds gauge",
+            f"graphone_hybrid_query_avg_latency_seconds {round(hybrid_stats['hybrid_query_avg_latency_ms'] / 1000.0, 4)}",
+            "# HELP graphone_hybrid_vector_candidates_total Total vector candidates retrieved in hybrid searches.",
+            "# TYPE graphone_hybrid_vector_candidates_total counter",
+            f"graphone_hybrid_vector_candidates_total {self.hybrid_vector_candidates}",
+            "# HELP graphone_hybrid_graph_candidates_total Total graph candidates discovered in hybrid expansions.",
+            "# TYPE graphone_hybrid_graph_candidates_total counter",
+            f"graphone_hybrid_graph_candidates_total {self.hybrid_graph_candidates}",
+            "# HELP graphone_hybrid_merged_candidates_total Total candidates merged across both pathways.",
+            "# TYPE graphone_hybrid_merged_candidates_total counter",
+            f"graphone_hybrid_merged_candidates_total {self.hybrid_merged_candidates}",
+            "# HELP graphone_hybrid_final_results_total Total final ranked results returned by hybrid retrieval.",
+            "# TYPE graphone_hybrid_final_results_total counter",
+            f"graphone_hybrid_final_results_total {self.hybrid_final_results}",
+            "# HELP graphone_hybrid_graph_truncated_total Total hybrid queries where graph expansions were capped.",
+            "# TYPE graphone_hybrid_graph_truncated_total counter",
+            f"graphone_hybrid_graph_truncated_total {self.hybrid_graph_expansions_truncated}",
         ])
 
         return "\n".join(lines) + "\n"

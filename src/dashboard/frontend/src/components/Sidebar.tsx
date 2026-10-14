@@ -37,7 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: "browser", label: "Data Browser", icon: Database },
     { id: "resolution", label: "Entity Resolution", icon: GitMerge },
     { id: "graph", label: "Knowledge Graph", icon: Share2 },
-    { id: "vector", label: "Vector Search", icon: Sparkles },
+    { id: "vector", label: "Hybrid Search", icon: Sparkles },
     { id: "logs", label: "Pipeline Logs", icon: Terminal },
   ];
 

@@ -87,6 +87,76 @@ def calculate_stats(values: List[float]) -> Dict[str, float]:
     }
 
 
+def calculate_precision_at_k(retrieved_ids: List[str], relevant_ids: Any, k: int) -> float:
+    """Calculate Precision@K: fraction of top-K retrieved items that are relevant."""
+    if k <= 0:
+        return 0.0
+    rel_set = set(relevant_ids)
+    hits = sum(1 for item in retrieved_ids[:k] if item in rel_set)
+    return round(hits / k, 4)
+
+
+def calculate_recall_at_k(retrieved_ids: List[str], relevant_ids: Any, k: int) -> float:
+    """Calculate Recall@K: fraction of relevant items retrieved in top-K."""
+    rel_set = set(relevant_ids)
+    if not rel_set:
+        return 0.0
+    if k <= 0:
+        return 0.0
+    hits = sum(1 for item in retrieved_ids[:k] if item in rel_set)
+    return round(hits / len(rel_set), 4)
+
+
+def calculate_mrr(retrieved_ids: List[str], relevant_ids: Any) -> float:
+    """Calculate Mean Reciprocal Rank (MRR): reciprocal of the 1-based rank of the first relevant hit."""
+    rel_set = set(relevant_ids)
+    for idx, item in enumerate(retrieved_ids, start=1):
+        if item in rel_set:
+            return round(1.0 / idx, 4)
+    return 0.0
+
+
+def calculate_ndcg_at_k(retrieved_ids: List[str], relevance_scores: Dict[str, float], k: int) -> float:
+    """
+    Calculate Normalized Discounted Cumulative Gain at K (NDCG@K) supporting graded relevance.
+    Formula: DCG@K / IDCG@K where DCG = sum((2^rel - 1) / log2(i + 2)).
+    """
+    if k <= 0 or not relevance_scores:
+        return 0.0
+
+    dcg = 0.0
+    for i, item_id in enumerate(retrieved_ids[:k]):
+        rel = float(relevance_scores.get(item_id, 0.0))
+        if rel > 0:
+            dcg += (2.0 ** rel - 1.0) / math.log2(i + 2)
+
+    ideal_rels = sorted(relevance_scores.values(), reverse=True)[:k]
+    idcg = sum((2.0 ** rel - 1.0) / math.log2(i + 2) for i, rel in enumerate(ideal_rels) if rel > 0)
+    if idcg <= 0.0:
+        return 0.0
+
+    return round(dcg / idcg, 4)
+
+
+def calculate_map(retrieved_ids: List[str], relevant_ids: Any, k: int) -> float:
+    """Calculate Mean Average Precision at K (MAP@K)."""
+    rel_set = set(relevant_ids)
+    if not rel_set or k <= 0:
+        return 0.0
+
+    precisions: List[float] = []
+    hits = 0
+    for idx, item in enumerate(retrieved_ids[:k], start=1):
+        if item in rel_set:
+            hits += 1
+            precisions.append(hits / idx)
+
+    if not precisions:
+        return 0.0
+
+    return round(sum(precisions) / min(len(rel_set), k), 4)
+
+
 class BenchmarkMetricsCollector:
     """
     Scientific Evaluation Metrics Collector tracking iterations, warm-up,
