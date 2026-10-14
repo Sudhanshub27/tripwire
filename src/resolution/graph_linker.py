@@ -139,6 +139,42 @@ class KnowledgeGraphLinker:
                         })
                         break
 
+        # 5. Process News Nodes & MENTIONS edges
+        for news_item in all_records.get("news", []):
+            headline = news_item.get("title") or "Untitled News"
+            news_id = f"node-news-{news_item.get('id', headline.lower()[:20].replace(' ', '-'))}"
+            if news_id not in node_ids:
+                node_ids.add(news_id)
+                nodes.append({
+                    "id": news_id,
+                    "label": "News",
+                    "name": headline,
+                    "published_at": news_item.get("published_at"),
+                    "sentiment": news_item.get("sentiment_score"),
+                })
+
+            # Connect News to mentioned Startups or Products
+            news_text = (
+                headline
+                + " "
+                + (news_item.get("content") or "")
+                + " "
+                + (news_item.get("summary") or "")
+            ).lower()
+            for node in nodes:
+                if (
+                    node["label"] in ("Startup", "Product")
+                    and len(node["name"]) >= 3
+                    and node["name"].lower() in news_text
+                ):
+                    edges.append({
+                        "source": news_id,
+                        "target": node["id"],
+                        "relation": "MENTIONS",
+                        "confidence": 0.85,
+                    })
+                    break
+
         # Persist graph nodes and edges to JSONL
         settings.DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
         try:
@@ -153,8 +189,25 @@ class KnowledgeGraphLinker:
 
         self._cached_nodes = nodes
         self._cached_edges = edges
+
+        try:
+            from src.graph.query_engine import graph_query_engine
+            graph_query_engine.load_graph_data(nodes, edges)
+        except Exception:
+            pass
+
         logger.info("Built Knowledge Graph Triples", nodes_count=len(nodes), edges_count=len(edges))
         return nodes, edges
+
+    @property
+    def query_engine(self):
+        """Return a GraphQueryEngine initialized with current graph data."""
+        from src.graph.query_engine import GraphQueryEngine
+
+        engine = GraphQueryEngine(linker=self)
+        nodes, edges = self._ensure_graph()
+        engine.load_graph_data(nodes, edges)
+        return engine
 
     def _ensure_graph(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Ensure graph is initialized and returned."""

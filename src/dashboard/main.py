@@ -20,6 +20,15 @@ from src.dashboard.processed_reader import (
     get_processed_stats,
     read_jsonl_records,
 )
+from src.graph import (
+    Direction,
+    PathQueryRequest,
+    QueryResult,
+    RelationshipQueryRequest,
+    SubgraphQueryRequest,
+    TraverseQueryRequest,
+    graph_query_engine,
+)
 from src.observability.metrics import metrics_collector
 from src.resolution.entity_resolver import EntityResolver
 from src.resolution.graph_linker import graph_linker
@@ -549,6 +558,135 @@ async def traverse_graph_subgraph(
             detail=f"Entity '{entity_id}' not found in knowledge graph",
         )
     return res
+
+
+# ==============================================================================
+# PHASE 4: GRAPH QUERY ENGINE REST API ENDPOINTS
+# ==============================================================================
+
+
+@app.get("/graph/nodes/{node_id}")
+@app.get("/api/graph/nodes/{node_id}")
+async def get_graph_node_endpoint(node_id: str) -> Dict[str, Any]:
+    """Retrieve a single graph node by ID or name with 404 validation."""
+    node = graph_query_engine.get_node(node_id)
+    if not node:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Node '{node_id}' not found in knowledge graph",
+        )
+    return node.to_dict()
+
+
+@app.get("/graph/nodes/{node_id}/neighbors")
+@app.get("/api/graph/nodes/{node_id}/neighbors")
+async def get_graph_node_neighbors_endpoint(
+    node_id: str,
+    relation: Optional[str] = Query(default=None, description="Filter neighbors by relation type"),
+    node_label: Optional[str] = Query(default=None, description="Filter neighbors by node label"),
+    direction: Direction = Query(default=Direction.BOTH, description="Direction: outgoing, incoming, both"),
+    limit: int = Query(default=100, ge=1, le=500, description="Maximum neighbors to return"),
+) -> QueryResult:
+    """Retrieve direct 1-hop neighbors of a node with filtering by relation, label, direction, and limit."""
+    node = graph_query_engine.get_node(node_id)
+    if not node:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Node '{node_id}' not found in knowledge graph",
+        )
+    return graph_query_engine.get_neighbors(
+        node_id_or_name=node_id,
+        relation=relation,
+        node_label=node_label,
+        direction=direction,
+        limit=limit,
+    )
+
+
+@app.post("/graph/query/traverse")
+@app.post("/api/graph/query/traverse")
+async def traverse_graph_endpoint(payload: TraverseQueryRequest) -> QueryResult:
+    """Execute bounded multi-hop graph traversal starting from root_id."""
+    node = graph_query_engine.get_node(payload.root_id)
+    if not node:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Root node '{payload.root_id}' not found in knowledge graph",
+        )
+    return graph_query_engine.traverse(
+        root_id_or_name=payload.root_id,
+        max_depth=payload.max_depth,
+        relation=payload.relation,
+        node_label=payload.node_label,
+        direction=payload.direction,
+        properties=payload.properties,
+        limit=payload.limit,
+    )
+
+
+@app.post("/graph/query/path")
+@app.post("/api/graph/query/path")
+async def find_graph_path_endpoint(payload: PathQueryRequest) -> QueryResult:
+    """Discover shortest path between two nodes with cycle safety and depth bounding."""
+    start_node = graph_query_engine.get_node(payload.from_node)
+    end_node = graph_query_engine.get_node(payload.to_node)
+    missing = []
+    if not start_node:
+        missing.append(f"from_node '{payload.from_node}'")
+    if not end_node:
+        missing.append(f"to_node '{payload.to_node}'")
+    if missing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Path discovery node lookup failed: {', '.join(missing)} not found in knowledge graph",
+        )
+    return graph_query_engine.find_path(
+        from_node_query=payload.from_node,
+        to_node_query=payload.to_node,
+        max_depth=payload.max_depth,
+        relation=payload.relation,
+        direction=payload.direction,
+    )
+
+
+@app.post("/graph/query/subgraph")
+@app.post("/api/graph/query/subgraph")
+async def extract_subgraph_endpoint(payload: SubgraphQueryRequest) -> QueryResult:
+    """Extract induced neighborhood subgraph around seed nodes."""
+    return graph_query_engine.extract_subgraph(
+        seed_node_queries=payload.node_ids,
+        hops=payload.hops,
+        relation=payload.relation,
+        node_label=payload.node_label,
+        direction=payload.direction,
+        limit=payload.limit,
+    )
+
+
+@app.post("/graph/query/relationships")
+@app.post("/api/graph/query/relationships")
+async def query_relationships_endpoint(payload: RelationshipQueryRequest) -> QueryResult:
+    """Query global relationships matching triple pattern constraints."""
+    return graph_query_engine.find_relationships(
+        relation=payload.relation,
+        source_label=payload.source_label,
+        target_label=payload.target_label,
+        min_confidence=payload.min_confidence,
+        limit=payload.limit,
+    )
+
+
+@app.get("/graph/stats")
+@app.get("/api/graph/stats")
+async def get_graph_stats_endpoint() -> Dict[str, Any]:
+    """Retrieve graph topological stats and query execution performance metrics."""
+    nodes, edges = graph_linker.build_graph_triples()
+    metrics = metrics_collector.get_graph_metrics()
+    return {
+        "nodes_count": len(nodes),
+        "edges_count": len(edges),
+        "metrics": metrics,
+    }
 
 
 @app.get("/api/search")

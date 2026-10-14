@@ -269,3 +269,94 @@ Exposes Prometheus gauges, counters, and histograms via `src/observability/metri
 - `graphone_entity_resolution_confidence_average`: Running average resolution confidence.
 - `graphone_entity_resolution_queue_size`: Active pending review queue count.
 - `graphone_entity_resolution_latency_seconds_average`: Running average resolution duration.
+
+---
+
+## 6. Graph Data Model & High-Performance Query Engine (Phase 4)
+
+### Overview
+Phase 4 introduces a production-oriented Graph Query Engine operating on top of the Knowledge Graph built from ingested entity streams. It features in-memory dual-adjacency indexing ($O(1)$ neighbor retrieval), cycle-safe Breadth-First Search (BFS) multi-hop traversals, shortest-path discovery, subgraph extraction, and strict resource bounds.
+
+```
+                  [ Knowledge Graph Data Model ]
+         (JSONL: graph_nodes.jsonl & graph_edges.jsonl)
+                                │
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ In-Memory Dual Adjacency Indexing Engine     │
+         │ - Nodes Index:   ID -> GraphNode             │
+         │ - Name Index:    normalized_name -> ID       │
+         │ - Out Adjacency: source_id -> [GraphEdge]    │
+         │ - In Adjacency:  target_id -> [GraphEdge]    │
+         └──────────────────────┬───────────────────────┘
+                                │
+     ┌──────────────────────────┼──────────────────────────┐
+     ▼                          ▼                          ▼
+[ Node / Neighbor Queries ] [ Multi-Hop BFS Traversal ] [ Shortest Path Discovery ]
+- Exact ID & Name Lookup     - Depth-bounded (max <= 10) - Cycle-safe bidirectional BFS
+- Directional Filtering      - Visited tracking          - Step-by-step Cypher tokens
+- Edge & Node Label Filters  - Result limits (<= 500)    - Hop count & edge sequences
+- Custom Property Matching   - Truncation detection      - Graceful unreachable return
+```
+
+### Graph Data Model Schema
+
+#### Node Schema & Stable Identifiers
+Nodes use stable prefixed identifiers: `node-{entity_type}-{id_or_slug}`.
+
+| Node Type | Stable ID Format | Properties |
+| :--- | :--- | :--- |
+| **`Startup`** | `node-startup-{id}` | `name`, `location`, `funding`, `stage` |
+| **`Product`** | `node-product-{id}` | `name`, `maker`, `pricing` |
+| **`ResearchPaper`** | `node-paper-{id}` | `name` (title), `authors`, `journal`, `year` |
+| **`Job`** | `node-job-{id}` | `name` (title), `company`, `salary` |
+| **`News`** | `node-news-{id}` | `name` (headline), `published_at`, `sentiment` |
+
+#### Edge Types & Relational Topology
+
+| Edge Type | Source Node | Target Node | Semantics & Default Confidence |
+| :--- | :--- | :--- | :--- |
+| **`PRODUCES`** | `Startup` | `Product` | Company develops/offers product ($0.95 - 0.99$) |
+| **`POSTED_BY`** | `Job` | `Startup` | Open employment position offered by company ($0.90$) |
+| **`MENTIONS`** | `News` | `Startup` / `Product` | Industry press reporting on entity ($0.85$) |
+| **`UTILIZES`** / **`CITES`** | `ResearchPaper` | `Product` / `Startup` | Technical methodology applied in product/research ($0.90$) |
+| **`COMPETES_WITH`** | `Product` | `Product` | Competitive market alternative ($0.85$) |
+
+### Query Engine Operations & Endpoints
+
+| Endpoint | Method | Request Payload / Params | Capabilities & Guarantees |
+| :--- | :---: | :--- | :--- |
+| `/graph/nodes/{node_id}` | `GET` | `node_id: str` | $O(1)$ node retrieval by ID or normalized name. Returns 404 if missing. |
+| `/graph/nodes/{node_id}/neighbors` | `GET` | `relation`, `node_label`, `direction`, `limit` | 1-hop exploration with edge type, node label, and direction filtering. |
+| `/graph/query/traverse` | `POST` | `TraverseQueryRequest` (`root_id`, `max_depth`, `direction`, `limit`) | Bounded multi-hop traversal with cycle protection and limit truncation. |
+| `/graph/query/path` | `POST` | `PathQueryRequest` (`from_node`, `to_node`, `max_depth`, `relation`) | Shortest path discovery returning ordered node/edge chains and steps. |
+| `/graph/query/subgraph` | `POST` | `SubgraphQueryRequest` (`node_ids`, `hops`, `relation`, `limit`) | Induced neighborhood subgraph extraction around multiple seed nodes. |
+| `/graph/query/relationships` | `POST` | `RelationshipQueryRequest` (`relation`, `source_label`, `target_label`) | Global triple pattern search with confidence thresholding. |
+| `/graph/stats` | `GET` | None | Graph topological stats and query execution latency averages. |
+
+### Query Safety & Resource Bounds
+- **Cycle Termination Safety**: All traversals maintain `visited_nodes` sets. Cyclic relationships (e.g. $A \rightarrow B \rightarrow C \rightarrow A$) terminate safely without infinite loops or redundant node visits.
+- **Configurable Clamping**:
+  - `max_depth`: Clamped between $1$ and $10$ (`MAX_ALLOWED_DEPTH`). Defaults: $2$ (traverse), $5$ (path).
+  - `limit`: Clamped between $1$ and $500$ (`MAX_RESULT_LIMIT`).
+  - `is_truncated`: Set to `True` when result sets reach the requested limit.
+- **Safe Fallbacks**: Missing entities return HTTP 404 or structured `QueryResult` with zero counts; disconnected components in path discovery safely return `found: False`.
+
+### Measured Empirical Performance Benchmark
+
+Benchmarks executed across deterministic synthetic graphs using `evaluation/graph_benchmark.py`:
+
+| Scale | Topology (Nodes / Edges) | Node Lookup | 1-Hop Neighbors | 2-Hop Traverse | 3-Hop Traverse | Shortest Path | Subgraph Extract |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Small** | 100 / 250 | $<0.001$ ms | 0.010 ms | 0.027 ms | 0.073 ms | 0.180 ms | 0.018 ms |
+| **Medium** | 1,000 / 3,500 | $<0.001$ ms | 0.009 ms | 0.029 ms | 0.144 ms | 3.249 ms | 0.024 ms |
+| **Large** | 5,000 / 20,000 | $<0.001$ ms | 0.011 ms | 0.043 ms | 0.183 ms | 4.840 ms | 0.029 ms |
+
+### Observability & Prometheus Exposition
+Integrated with `src/observability/metrics.py`:
+- `graphone_graph_queries_total{query_type="..."}`: Cumulative queries by operation type.
+- `graphone_graph_query_errors_total`: Cumulative query execution errors.
+- `graphone_graph_query_avg_latency_seconds`: Running average query duration.
+- `graphone_graph_nodes_visited_total`: Cumulative graph nodes explored during traversals.
+- `graphone_graph_nodes_returned_total`: Cumulative graph nodes returned in response payloads.
+- `graphone_graph_results_truncated_total`: Cumulative query results capped by limits.

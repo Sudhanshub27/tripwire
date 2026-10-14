@@ -1,0 +1,150 @@
+{
+  "benchmark": "Graph Query Engine Traversal & Path Discovery",
+  "timestamp": "2026-10-14T21:33:31Z",
+  "scales": [
+    {
+      "scale_name": "Small Graph",
+      "node_count": 100,
+      "edge_count": 250,
+      "benchmarks": {
+        "node_lookup": {
+          "avg_ms": 0.0003,
+          "min_ms": 0.0001,
+          "max_ms": 0.0026,
+          "nodes_returned": 1
+        },
+        "neighbors_1hop": {
+          "avg_ms": 0.0118,
+          "min_ms": 0.0056,
+          "max_ms": 0.0416,
+          "nodes_returned": 7,
+          "edges_returned": 6
+        },
+        "traversal_2hop": {
+          "avg_ms": 0.0339,
+          "min_ms": 0.0243,
+          "max_ms": 0.0513,
+          "nodes_visited": 30,
+          "nodes_returned": 30
+        },
+        "traversal_3hop": {
+          "avg_ms": 0.0792,
+          "min_ms": 0.0696,
+          "max_ms": 0.1307,
+          "nodes_visited": 71,
+          "nodes_returned": 71
+        },
+        "path_discovery": {
+          "avg_ms": 0.2026,
+          "min_ms": 0.1628,
+          "max_ms": 0.2911,
+          "path_found": true,
+          "path_length": 3
+        },
+        "subgraph_extraction": {
+          "avg_ms": 0.0188,
+          "min_ms": 0.0134,
+          "max_ms": 0.0431,
+          "nodes_returned": 15,
+          "edges_returned": 17
+        }
+      }
+    },
+    {
+      "scale_name": "Medium Graph",
+      "node_count": 1000,
+      "edge_count": 3500,
+      "benchmarks": {
+        "node_lookup": {
+          "avg_ms": 0.0002,
+          "min_ms": 0.0001,
+          "max_ms": 0.0018,
+          "nodes_returned": 1
+        },
+        "neighbors_1hop": {
+          "avg_ms": 0.0092,
+          "min_ms": 0.0049,
+          "max_ms": 0.0341,
+          "nodes_returned": 7,
+          "edges_returned": 6
+        },
+        "traversal_2hop": {
+          "avg_ms": 0.0286,
+          "min_ms": 0.0236,
+          "max_ms": 0.0573,
+          "nodes_visited": 41,
+          "nodes_returned": 41
+        },
+        "traversal_3hop": {
+          "avg_ms": 0.1506,
+          "min_ms": 0.1327,
+          "max_ms": 0.2306,
+          "nodes_visited": 228,
+          "nodes_returned": 228
+        },
+        "path_discovery": {
+          "avg_ms": 3.2517,
+          "min_ms": 2.4334,
+          "max_ms": 7.1646,
+          "path_found": true,
+          "path_length": 5
+        },
+        "subgraph_extraction": {
+          "avg_ms": 0.0249,
+          "min_ms": 0.0184,
+          "max_ms": 0.0584,
+          "nodes_returned": 22,
+          "edges_returned": 21
+        }
+      }
+    },
+    {
+      "scale_name": "Large Graph",
+      "node_count": 5000,
+      "edge_count": 20000,
+      "benchmarks": {
+        "node_lookup": {
+          "avg_ms": 0.0002,
+          "min_ms": 0.0001,
+          "max_ms": 0.0022,
+          "nodes_returned": 1
+        },
+        "neighbors_1hop": {
+          "avg_ms": 0.0097,
+          "min_ms": 0.005,
+          "max_ms": 0.0371,
+          "nodes_returned": 8,
+          "edges_returned": 7
+        },
+        "traversal_2hop": {
+          "avg_ms": 0.0408,
+          "min_ms": 0.0323,
+          "max_ms": 0.0847,
+          "nodes_visited": 61,
+          "nodes_returned": 61
+        },
+        "traversal_3hop": {
+          "avg_ms": 0.1814,
+          "min_ms": 0.1603,
+          "max_ms": 0.2965,
+          "nodes_visited": 300,
+          "nodes_returned": 300
+        },
+        "path_discovery": {
+          "avg_ms": 4.7134,
+          "min_ms": 3.054,
+          "max_ms": 14.4883,
+          "path_found": true,
+          "path_length": 4
+        },
+        "subgraph_extraction": {
+          "avg_ms": 0.0265,
+          "min_ms": 0.0196,
+          "max_ms": 0.0679,
+          "nodes_returned": 24,
+          "edges_returned": 21
+        }
+      }
+    }
+  ]
+}

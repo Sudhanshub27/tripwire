@@ -77,6 +77,21 @@ class MetricsCollector:
         self.incremental_skipped: int = 0
         self.llm_calls_saved: int = 0
         self.embedding_calls_saved: int = 0
+        # Graph query engine metrics (Phase 4)
+        self.graph_queries_total: Dict[str, int] = {
+            "node_lookup": 0,
+            "neighbors": 0,
+            "traverse": 0,
+            "path": 0,
+            "subgraph": 0,
+            "relationship": 0,
+        }
+        self.graph_query_errors: int = 0
+        self.graph_query_latency_sum: float = 0.0
+        self.graph_query_latency_count: int = 0
+        self.graph_nodes_visited: int = 0
+        self.graph_nodes_returned: int = 0
+        self.graph_results_truncated: int = 0
 
     def record_ingested_entity(self, entity_type: str, count: int = 1):
         """Record newly ingested entity count."""
@@ -233,6 +248,67 @@ class MetricsCollector:
             "work_avoided_pct": work_avoided_pct,
         }
 
+    def record_graph_query(
+        self,
+        query_type: str,
+        latency_seconds: float,
+        nodes_visited: int = 0,
+        nodes_returned: int = 0,
+        is_truncated: bool = False,
+        is_error: bool = False,
+    ):
+        """Record graph query execution metrics."""
+        qtype = query_type.lower()
+        if qtype in self.graph_queries_total:
+            self.graph_queries_total[qtype] += 1
+        else:
+            self.graph_queries_total[qtype] = 1
+
+        if is_error:
+            self.graph_query_errors += 1
+
+        self.graph_query_latency_sum += float(latency_seconds)
+        self.graph_query_latency_count += 1
+        self.graph_nodes_visited += int(nodes_visited)
+        self.graph_nodes_returned += int(nodes_returned)
+        if is_truncated:
+            self.graph_results_truncated += 1
+
+    def reset_graph_metrics(self):
+        """Reset graph query metrics counters."""
+        self.graph_queries_total = {
+            "node_lookup": 0,
+            "neighbors": 0,
+            "traverse": 0,
+            "path": 0,
+            "subgraph": 0,
+            "relationship": 0,
+        }
+        self.graph_query_errors = 0
+        self.graph_query_latency_sum = 0.0
+        self.graph_query_latency_count = 0
+        self.graph_nodes_visited = 0
+        self.graph_nodes_returned = 0
+        self.graph_results_truncated = 0
+
+    def get_graph_metrics(self) -> Dict[str, Any]:
+        """Return snapshot of graph query metrics."""
+        avg_lat = (
+            round((self.graph_query_latency_sum / self.graph_query_latency_count) * 1000.0, 2)
+            if self.graph_query_latency_count > 0
+            else 0.0
+        )
+        total_queries = sum(self.graph_queries_total.values())
+        return {
+            "graph_queries_total": total_queries,
+            "graph_queries_by_type": dict(self.graph_queries_total),
+            "graph_query_errors": self.graph_query_errors,
+            "graph_query_avg_latency_ms": avg_lat,
+            "graph_nodes_visited": self.graph_nodes_visited,
+            "graph_nodes_returned": self.graph_nodes_returned,
+            "graph_results_truncated": self.graph_results_truncated,
+        }
+
     def generate_prometheus_format(self) -> str:
         """Generate Prometheus exposition text format for /metrics scraping."""
         lines: List[str] = [
@@ -326,6 +402,33 @@ class MetricsCollector:
             "# HELP graphone_embedding_calls_saved_total Total embedding calls saved via incremental skipping.",
             "# TYPE graphone_embedding_calls_saved_total counter",
             f"graphone_embedding_calls_saved_total {self.embedding_calls_saved}",
+        ])
+
+        # Graph Query Engine Prometheus Metrics (Phase 4)
+        graph_stats = self.get_graph_metrics()
+        lines.extend([
+            "# HELP graphone_graph_queries_total Total graph queries executed by query type.",
+            "# TYPE graphone_graph_queries_total counter",
+        ])
+        for qtype, qcount in self.graph_queries_total.items():
+            lines.append(f'graphone_graph_queries_total{{query_type="{qtype}"}} {qcount}')
+
+        lines.extend([
+            "# HELP graphone_graph_query_errors_total Total graph queries resulting in errors or missing roots.",
+            "# TYPE graphone_graph_query_errors_total counter",
+            f"graphone_graph_query_errors_total {self.graph_query_errors}",
+            "# HELP graphone_graph_query_avg_latency_seconds Average graph query execution latency in seconds.",
+            "# TYPE graphone_graph_query_avg_latency_seconds gauge",
+            f"graphone_graph_query_avg_latency_seconds {round(graph_stats['graph_query_avg_latency_ms'] / 1000.0, 4)}",
+            "# HELP graphone_graph_nodes_visited_total Total graph nodes visited during traversals.",
+            "# TYPE graphone_graph_nodes_visited_total counter",
+            f"graphone_graph_nodes_visited_total {self.graph_nodes_visited}",
+            "# HELP graphone_graph_nodes_returned_total Total graph nodes returned in query responses.",
+            "# TYPE graphone_graph_nodes_returned_total counter",
+            f"graphone_graph_nodes_returned_total {self.graph_nodes_returned}",
+            "# HELP graphone_graph_results_truncated_total Total query executions where results were truncated.",
+            "# TYPE graphone_graph_results_truncated_total counter",
+            f"graphone_graph_results_truncated_total {self.graph_results_truncated}",
         ])
 
         return "\n".join(lines) + "\n"
