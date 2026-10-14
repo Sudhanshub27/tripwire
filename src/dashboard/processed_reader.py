@@ -26,8 +26,12 @@ def read_jsonl_records(filename: str) -> List[Dict[str, Any]]:
 
 
 def get_all_processed_records() -> Dict[str, List[Dict[str, Any]]]:
-    """Load all 6 output entity types from data/processed/*.jsonl."""
-    return {
+    """
+    Load all 6 output entity types from data/processed/*.jsonl.
+    If no entity records exist (e.g. fresh repository checkout or CI environment),
+    falls back to tracked baseline mock data so the graph and vector pipelines remain functional.
+    """
+    records = {
         "startups": read_jsonl_records("startups.jsonl"),
         "products": read_jsonl_records("products.jsonl"),
         "research_papers": read_jsonl_records("research_papers.jsonl"),
@@ -35,6 +39,33 @@ def get_all_processed_records() -> Dict[str, List[Dict[str, Any]]]:
         "news": read_jsonl_records("news.jsonl"),
         "entity_log": read_jsonl_records("entity_mapping_log.jsonl"),
     }
+
+    # If all entity types are empty (e.g. fresh repository clone / clean CI runner)
+    has_entities = any(bool(records[k]) for k in ("startups", "products", "research_papers", "jobs", "news"))
+    if not has_entities:
+        mock_dir = settings.BASE_DIR / "src" / "dashboard" / "mock_data"
+        mapping = {
+            "startups": "startups.json",
+            "products": "products.json",
+            "research_papers": "research_papers.json",
+            "jobs": "jobs.json",
+            "news": "news.json",
+            "entity_log": "entity_resolution_log.json",
+        }
+        for key, fname in mapping.items():
+            fpath = mock_dir / fname
+            if fpath.exists():
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, list):
+                            records[key] = data
+                        elif key == "entity_log" and isinstance(data, dict):
+                            records[key] = data.get("entries", [])
+                except Exception as e:
+                    logger.warning("Failed loading fallback mock data", filename=fname, error=str(e))
+
+    return records
 
 
 def get_processed_llm_stats(total_records: int, all_data: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
@@ -185,6 +216,15 @@ def get_processed_entity_log() -> Dict[str, Any]:
     """Build entity resolution summary breakdown and entries list from real JSONL."""
     raw_logs = read_jsonl_records("entity_mapping_log.jsonl")
     if not raw_logs:
+        mock_log = settings.BASE_DIR / "src" / "dashboard" / "mock_data" / "entity_resolution_log.json"
+        if mock_log.exists():
+            try:
+                with open(mock_log, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+            except Exception:
+                pass
         return {"summary": {}, "entries": []}
 
     formatted_entries = []

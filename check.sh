@@ -47,7 +47,7 @@ $RUFF_BIN check .
 echo -e "${GREEN}✓ Ruff lint passed.${NC}"
 
 # Step 3: Run pytest with coverage under simulated clean CI environment
-echo -e "\n${BLUE}▶ 3/5 Running Pytest suite under clean CI conditions (isolated dist & .env)...${NC}"
+echo -e "\n${BLUE}▶ 3/5 Running Pytest suite under clean CI conditions (isolated dist, .env & data/processed)...${NC}"
 DIST_DIR="src/dashboard/frontend/dist"
 BAK_DIR="src/dashboard/frontend/dist_ci_test_bak"
 RESTORE_DIST=0
@@ -66,6 +66,17 @@ if [ -f "$ENV_FILE" ]; then
     RESTORE_ENV=1
 fi
 
+PROCESSED_DIR="data/processed"
+BAK_PROCESSED="data/processed_ci_test_bak"
+RESTORE_PROCESSED=0
+
+if [ -d "$PROCESSED_DIR" ]; then
+    mv "$PROCESSED_DIR" "$BAK_PROCESSED"
+    mkdir -p "$PROCESSED_DIR"
+    touch "$PROCESSED_DIR/.gitkeep"
+    RESTORE_PROCESSED=1
+fi
+
 cleanup() {
     if [ "$RESTORE_DIST" -eq 1 ] && [ -d "$BAK_DIR" ]; then
         mv "$BAK_DIR" "$DIST_DIR"
@@ -73,16 +84,21 @@ cleanup() {
     if [ "$RESTORE_ENV" -eq 1 ] && [ -f "$BAK_ENV" ]; then
         mv "$BAK_ENV" "$ENV_FILE"
     fi
+    if [ "$RESTORE_PROCESSED" -eq 1 ] && [ -d "$BAK_PROCESSED" ]; then
+        rm -rf "$PROCESSED_DIR"
+        mv "$BAK_PROCESSED" "$PROCESSED_DIR"
+    fi
 }
 trap cleanup EXIT INT TERM
 
 $PYTEST_BIN tests/ --cov=src --cov-report=term-missing
 echo -e "${GREEN}✓ Pytest passed under clean CI conditions.${NC}"
 
-# Restore dist and .env
+# Restore dist, .env, and data/processed
 cleanup
 RESTORE_DIST=0
 RESTORE_ENV=0
+RESTORE_PROCESSED=0
 
 # Step 4: Frontend Lint & TypeScript Check
 if [ -d "src/dashboard/frontend" ]; then
