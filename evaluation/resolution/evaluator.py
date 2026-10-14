@@ -130,12 +130,24 @@ class EntityResolutionEvaluator:
         total_pairs = len(self.dataset) or 1
         decision_model = {
             "counts": decision_counts,
+            "auto_match_count": decision_counts["MATCH"],
+            "review_count": decision_counts["REVIEW"],
+            "needs_review_count": decision_counts["REVIEW"],
+            "no_match_count": decision_counts["NEW"],
             "match_threshold": fuzzy_threshold,
             "review_threshold": 65.0,
             "match_rate": round(decision_counts["MATCH"] / total_pairs, 4),
             "review_rate": round(decision_counts["REVIEW"] / total_pairs, 4),
             "new_rate": round(decision_counts["NEW"] / total_pairs, 4),
         }
+
+        metrics["auto_match_count"] = decision_counts["MATCH"]
+        metrics["review_count"] = decision_counts["REVIEW"]
+        metrics["needs_review_count"] = decision_counts["REVIEW"]
+        metrics["no_match_count"] = decision_counts["NEW"]
+        metrics["precision"] = metrics["classification"]["precision"]
+        metrics["recall"] = metrics["classification"]["recall"]
+        metrics["f1_score"] = metrics["classification"]["f1_score"]
 
         report = {
             "evaluator": "EntityResolutionEvaluator",

@@ -379,3 +379,318 @@ def test_rejection(temp_env):
 def test_persistence(temp_env):
     """Verify persistence of review decisions and logs."""
     test_persistence_of_decisions(temp_env)
+
+
+def test_invalid_repeated_review_transitions(temp_env):
+    """Test state transition validations: approving already rejected or re-approving fails safely."""
+    queue = temp_env["queue"]
+
+    # 1. Enqueue item
+    item = queue.add_review(
+        candidate="Transition Test Co",
+        canonical="Cohere",
+        matching_method="fuzzy",
+        fuzzy_score=0.74,
+        confidence=0.74,
+    )
+    rev_id = item["id"]
+
+    # 2. Reject first
+    rejected = queue.reject_review(rev_id, notes="First rejection")
+    assert rejected["status"] == "REJECTED"
+
+    # 3. Attempting to approve an already rejected review must fail safely
+    with pytest.raises(ValueError, match="Cannot approve review.*status 'REJECTED'"):
+        queue.approve_review(rev_id, notes="Attempted approve after reject")
+
+    # 4. Attempting to reject an already rejected review must fail safely
+    with pytest.raises(ValueError, match="already rejected"):
+        queue.reject_review(rev_id)
+
+    # 5. Test another item for approve -> reject transition
+    item2 = queue.add_review(
+        candidate="Transition Test Co 2",
+        canonical="Anthropic",
+        matching_method="fuzzy",
+        fuzzy_score=0.79,
+        confidence=0.79,
+    )
+    rev_id2 = item2["id"]
+    approved = queue.approve_review(rev_id2, notes="First approval")
+    assert approved["status"] == "APPROVED"
+
+    # 6. Attempting to reject an already approved review must fail safely
+    with pytest.raises(ValueError, match="Cannot reject review.*status 'APPROVED'"):
+        queue.reject_review(rev_id2, notes="Attempted reject after approve")
+
+    # 7. Attempting to approve an already approved review must fail safely
+    with pytest.raises(ValueError, match="already approved"):
+        queue.approve_review(rev_id2)
+
+
+def test_audit_trail_creation(temp_env):
+    """Test immutable audit trail records enqueue, approve, and reject actions with reviewer and state."""
+    queue = temp_env["queue"]
+
+    item = queue.add_review(
+        candidate="Audit Test Entity",
+        canonical="OpenAI",
+        matching_method="fuzzy",
+        fuzzy_score=0.76,
+        confidence=0.76,
+        source="audit_crawl",
+        match_reason="Ambiguous similarity test",
+        signals={"test_signal": 123},
+    )
+    rev_id = item["id"]
+
+    # Audit trail should contain initial ENQUEUE record
+    trail_1 = queue.get_review_audit_trail(rev_id)
+    assert len(trail_1) == 1
+    enq = trail_1[0]
+    assert enq["review_id"] == rev_id
+    assert enq["reviewer_action"] == "ENQUEUE"
+    assert enq["previous_state"] == "NONE"
+    assert enq["new_state"] == "PENDING"
+    assert enq["original_resolution"] == "NEEDS_REVIEW"
+    assert enq["original_confidence"] == 0.76
+
+    # Approve item
+    queue.approve_review(rev_id, notes="Approved by Lead Reviewer", reviewer="reviewer_bob")
+
+    # Audit trail should now contain 2 records
+    trail_2 = queue.get_review_audit_trail(rev_id)
+    assert len(trail_2) == 2
+    appr = trail_2[1]
+    assert appr["review_id"] == rev_id
+    assert appr["reviewer_action"] == "APPROVE"
+    assert appr["previous_state"] == "PENDING"
+    assert appr["new_state"] == "APPROVED"
+    assert appr["reviewer"] == "reviewer_bob"
+    assert appr["notes"] == "Approved by Lead Reviewer"
+    assert appr["timestamp"] is not None
+
+    # Global audit trail query
+    all_audit = queue.get_review_audit_trail()
+    assert len(all_audit) >= 2
+
+
+def test_candidate_ranking_and_generation(temp_env):
+    """Test candidate generation separates blocking retrieval from scoring and ranks candidates."""
+    resolver = temp_env["resolver"]
+
+    # Candidate generation for exact match
+    exact_cands = resolver.generate_candidates("OpenAI")
+    assert len(exact_cands) >= 1
+    assert any(c[0] == "OpenAI" for c in exact_cands)
+
+    # Candidate generation for fuzzy name
+    fuzzy_cands = resolver.generate_candidates("Synthesia Media")
+    assert len(fuzzy_cands) >= 1
+    assert any(c[0] == "Synthesia" for c in fuzzy_cands)
+
+    # Completely disparate input generates no candidates
+    none_cands = resolver.generate_candidates("Xy99ZzTotallyUnknownCorp999")
+    assert len(none_cands) == 0
+
+    # Candidate scoring ranks and scores candidates
+    best_canon, method, conf, fuzzy, signals, reason = resolver.score_candidates(
+        "Synthesia Media", fuzzy_cands
+    )
+    assert best_canon == "Synthesia"
+    assert 0.65 <= conf < 0.85
+    assert "token_sort_ratio" in signals
+
+
+def test_deterministic_confidence_score(temp_env):
+    """Test confidence scoring is deterministic, explainable, and bounded in [0.0, 1.0]."""
+    resolver = temp_env["resolver"]
+
+    res1 = resolver.resolve("Hugging Face Hub")
+    res2 = resolver.resolve("Hugging Face Hub")
+    assert res1.confidence == res2.confidence
+    assert res1.fuzzy_score == res2.fuzzy_score
+    assert res1.decision == res2.decision
+    assert 0.0 <= res1.confidence <= 1.0
+    assert 0.0 <= res1.fuzzy_score <= 1.0
+
+    # Signals must explain the match
+    assert "token_sort_ratio" in res1.signals
+    assert res1.match_reason != ""
+
+
+def test_metrics_updates_on_resolution_and_reviews(temp_env):
+    """Test metrics collector tracks auto_matched, needs_review, no_match, approvals, and rejections."""
+    from src.observability.metrics import metrics_collector
+
+    metrics_collector.reset_er_metrics()
+    resolver = temp_env["resolver"]
+    queue = temp_env["queue"]
+
+    # 1. AUTO_MATCH
+    resolver.resolve("openai.com")
+    stats = metrics_collector.get_er_metrics()
+    assert stats["entity_resolution_auto_matched"] == 1
+    assert stats["entity_resolution_total"] == 1
+
+    # 2. NEEDS_REVIEW
+    resolver.resolve("Synthesia Media")
+    stats = metrics_collector.get_er_metrics()
+    assert stats["entity_resolution_needs_review"] == 1
+    assert stats["entity_resolution_total"] == 2
+
+    # 3. NO_MATCH
+    resolver.resolve("Completely Random Nonexistent Entity 12345")
+    stats = metrics_collector.get_er_metrics()
+    assert stats["entity_resolution_no_match"] == 1
+    assert stats["entity_resolution_total"] == 3
+
+    # 4. Review approval
+    item = queue.add_review(
+        candidate="Metric Test Candidate",
+        canonical="OpenAI",
+        matching_method="fuzzy",
+        fuzzy_score=0.75,
+        confidence=0.75,
+    )
+    queue.approve_review(item["id"])
+    stats = metrics_collector.get_er_metrics()
+    assert stats["entity_resolution_review_approved"] == 1
+
+    # 5. Review rejection
+    item2 = queue.add_review(
+        candidate="Metric Test Candidate 2",
+        canonical="Anthropic",
+        matching_method="fuzzy",
+        fuzzy_score=0.71,
+        confidence=0.71,
+    )
+    queue.reject_review(item2["id"])
+    stats = metrics_collector.get_er_metrics()
+    assert stats["entity_resolution_review_rejected"] == 1
+
+    # Prometheus export check
+    prom_text = metrics_collector.generate_prometheus_format()
+    assert "graphone_entity_resolution_total" in prom_text
+    assert "graphone_entity_resolution_auto_matched" in prom_text
+    assert "graphone_entity_resolution_needs_review" in prom_text
+    assert "graphone_entity_resolution_no_match" in prom_text
+    assert "graphone_entity_resolution_review_approved" in prom_text
+    assert "graphone_entity_resolution_review_rejected" in prom_text
+
+
+def test_review_api_comprehensive():
+    """Test full Review API suite: GET /reviews, filtering, get by ID, audit, and 409 transition errors."""
+    client = TestClient(app)
+    from src.resolution.review_queue import review_queue
+
+    # 1. Add review item
+    item = review_queue.add_review(
+        candidate="API Review Test Corp",
+        canonical="Cohere",
+        matching_method="fuzzy",
+        fuzzy_score=0.77,
+        confidence=0.77,
+        source="api_suite",
+    )
+    rev_id = item["id"]
+
+    # 2. GET /reviews (defaults to pending)
+    res_list = client.get("/reviews")
+    assert res_list.status_code == 200
+    ids = [r["id"] for r in res_list.json()]
+    assert rev_id in ids
+
+    # 3. GET /reviews?status=pending
+    res_pending = client.get("/reviews?status=pending")
+    assert res_pending.status_code == 200
+
+    # 4. GET /reviews/{review_id}
+    res_get = client.get(f"/reviews/{rev_id}")
+    assert res_get.status_code == 200
+    data = res_get.json()
+    assert data["id"] == rev_id
+    assert "audit_trail" in data
+
+    # 5. GET /reviews/{review_id}/audit
+    res_audit = client.get(f"/reviews/{rev_id}/audit")
+    assert res_audit.status_code == 200
+    assert len(res_audit.json()) >= 1
+
+    # 6. GET /reviews/stats
+    res_stats = client.get("/reviews/stats")
+    assert res_stats.status_code == 200
+    assert "pending" in res_stats.json()
+    assert "total" in res_stats.json()
+
+    # 7. POST /reviews/{review_id}/approve with payload
+    res_app = client.post(
+        f"/reviews/{rev_id}/approve",
+        json={"reviewer": "reviewer_alice", "notes": "Approved for merging"},
+    )
+    assert res_app.status_code == 200
+    assert res_app.json()["status"] == "approved"
+    assert res_app.json()["review"]["status"] == "APPROVED"
+
+    # 8. POST /reviews/{review_id}/reject after approve -> 409 Conflict
+    res_rej_conflict = client.post(
+        f"/reviews/{rev_id}/reject",
+        json={"reviewer": "reviewer_alice"},
+    )
+    assert res_rej_conflict.status_code == 409
+    assert "Cannot reject review" in res_rej_conflict.json()["detail"]
+
+    # 9. POST /reviews/{review_id}/approve repeated -> 409 Conflict
+    res_app_repeated = client.post(f"/reviews/{rev_id}/approve")
+    assert res_app_repeated.status_code == 409
+
+
+def test_concurrent_review_safety(temp_env):
+    """Test concurrent review approve/reject attempts execute safely without corrupting SQLite state."""
+    import concurrent.futures
+    queue = temp_env["queue"]
+
+    item = queue.add_review(
+        candidate="Concurrent Candidate",
+        canonical="OpenAI",
+        matching_method="fuzzy",
+        fuzzy_score=0.76,
+        confidence=0.76,
+    )
+    rev_id = item["id"]
+
+    success_count = 0
+    conflict_count = 0
+
+    def attempt_action(action: str):
+        if action == "approve":
+            try:
+                return queue.approve_review(rev_id, reviewer="worker_a")
+            except ValueError:
+                return "conflict"
+        else:
+            try:
+                return queue.reject_review(rev_id, reviewer="worker_b")
+            except ValueError:
+                return "conflict"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [
+            executor.submit(attempt_action, "approve"),
+            executor.submit(attempt_action, "approve"),
+            executor.submit(attempt_action, "reject"),
+            executor.submit(attempt_action, "reject"),
+        ]
+        results = [f.result() for f in futures]
+
+    for res in results:
+        if isinstance(res, dict):
+            success_count += 1
+        elif res == "conflict":
+            conflict_count += 1
+
+    # Exactly 1 thread must succeed; all others must safely conflict
+    assert success_count == 1
+    assert conflict_count == 3
+    final_item = queue.get_review_by_id(rev_id)
+    assert final_item["status"] in ("APPROVED", "REJECTED")

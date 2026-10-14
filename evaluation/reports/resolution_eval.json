@@ -1,141 +1,152 @@
 {
   "evaluator": "EntityResolutionEvaluator",
   "active_fuzzy_threshold": 85.0,
-  "total_pairs_evaluated": 25,
+  "total_pairs_evaluated": 32,
   "metrics": {
     "confusion_matrix": {
-      "true_positives": 14,
+      "true_positives": 16,
       "false_positives": 0,
       "false_negatives": 4,
-      "true_negatives": 7,
-      "total_pairs": 25
+      "true_negatives": 12,
+      "total_pairs": 32
     },
     "classification": {
       "precision": 1.0,
-      "recall": 0.7778,
-      "f1_score": 0.875,
-      "accuracy": 0.84
+      "recall": 0.8,
+      "f1_score": 0.8889,
+      "accuracy": 0.875
     },
     "method_rates": {
-      "exact_match_rate": 0.28,
-      "normalized_match_rate": 0.2,
-      "fuzzy_match_rate": 0.08,
-      "unresolved_rate": 0.44
+      "exact_match_rate": 0.375,
+      "normalized_match_rate": 0.0625,
+      "fuzzy_match_rate": 0.0625,
+      "unresolved_rate": 0.5
     },
     "confidence_distribution": {
-      "mean": 0.74,
-      "median": 0.95,
-      "p50": 0.95,
+      "mean": 0.73,
+      "median": 0.87,
+      "p50": 0.87,
       "p95": 1.0,
       "min": 0.12,
       "max": 1.0
-    }
+    },
+    "auto_match_count": 16,
+    "review_count": 6,
+    "needs_review_count": 6,
+    "no_match_count": 10,
+    "precision": 1.0,
+    "recall": 0.8,
+    "f1_score": 0.8889
   },
   "decision_model": {
     "counts": {
-      "MATCH": 14,
-      "REVIEW": 3,
-      "NEW": 8
+      "MATCH": 16,
+      "REVIEW": 6,
+      "NEW": 10
     },
+    "auto_match_count": 16,
+    "review_count": 6,
+    "needs_review_count": 6,
+    "no_match_count": 10,
     "match_threshold": 85.0,
     "review_threshold": 65.0,
-    "match_rate": 0.56,
-    "review_rate": 0.12,
-    "new_rate": 0.32
+    "match_rate": 0.5,
+    "review_rate": 0.1875,
+    "new_rate": 0.3125
   },
   "threshold_analysis": {
     "threshold_curve": [
       {
         "threshold": 50.0,
-        "precision": 0.8,
-        "recall": 0.8889,
-        "f1_score": 0.8421,
-        "accuracy": 0.76,
-        "tp": 16,
-        "fp": 4,
+        "precision": 0.6923,
+        "recall": 0.9,
+        "f1_score": 0.7826,
+        "accuracy": 0.6875,
+        "tp": 18,
+        "fp": 8,
         "fn": 2,
-        "tn": 3
+        "tn": 4
       },
       {
         "threshold": 60.0,
-        "precision": 0.8889,
-        "recall": 0.8889,
-        "f1_score": 0.8889,
-        "accuracy": 0.84,
-        "tp": 16,
-        "fp": 2,
+        "precision": 0.7826,
+        "recall": 0.9,
+        "f1_score": 0.8372,
+        "accuracy": 0.7812,
+        "tp": 18,
+        "fp": 5,
         "fn": 2,
-        "tn": 5
+        "tn": 7
       },
       {
         "threshold": 70.0,
-        "precision": 1.0,
-        "recall": 0.8333,
-        "f1_score": 0.9091,
-        "accuracy": 0.88,
-        "tp": 15,
-        "fp": 0,
+        "precision": 0.8947,
+        "recall": 0.85,
+        "f1_score": 0.8718,
+        "accuracy": 0.8438,
+        "tp": 17,
+        "fp": 2,
         "fn": 3,
-        "tn": 7
+        "tn": 10
       },
       {
         "threshold": 75.0,
-        "precision": 1.0,
-        "recall": 0.8333,
-        "f1_score": 0.9091,
-        "accuracy": 0.88,
-        "tp": 15,
-        "fp": 0,
+        "precision": 0.9444,
+        "recall": 0.85,
+        "f1_score": 0.8947,
+        "accuracy": 0.875,
+        "tp": 17,
+        "fp": 1,
         "fn": 3,
-        "tn": 7
+        "tn": 11
       },
       {
         "threshold": 80.0,
         "precision": 1.0,
-        "recall": 0.7222,
-        "f1_score": 0.8387,
-        "accuracy": 0.8,
-        "tp": 13,
+        "recall": 0.75,
+        "f1_score": 0.8571,
+        "accuracy": 0.8438,
+        "tp": 15,
         "fp": 0,
         "fn": 5,
-        "tn": 7
+        "tn": 12
       },
       {
         "threshold": 85.0,
         "precision": 1.0,
-        "recall": 0.6667,
-        "f1_score": 0.8,
-        "accuracy": 0.76,
-        "tp": 12,
+        "recall": 0.7,
+        "f1_score": 0.8235,
+        "accuracy": 0.8125,
+        "tp": 14,
         "fp": 0,
         "fn": 6,
-        "tn": 7
+        "tn": 12
       },
       {
         "threshold": 90.0,
         "precision": 1.0,
-        "recall": 0.6667,
-        "f1_score": 0.8,
-        "accuracy": 0.76,
-        "tp": 12,
+        "recall": 0.7,
+        "f1_score": 0.8235,
+        "accuracy": 0.8125,
+        "tp": 14,
         "fp": 0,
         "fn": 6,
-        "tn": 7
+        "tn": 12
       },
       {
         "threshold": 95.0,
         "precision": 1.0,
-        "recall": 0.6667,
-        "f1_score": 0.8,
-        "accuracy": 0.76,
-        "tp": 12,
+        "recall": 0.7,
+        "f1_score": 0.8235,
+        "accuracy": 0.8125,
+        "tp": 14,
         "fp": 0,
         "fn": 6,
-        "tn": 7
+        "tn": 12
       }
     ],
-    "recommended_threshold": 70.0,
-    "best_f1_score": 0.9091
+    "recommended_threshold": 75.0,
+    "best_f1_score": 0.8947
   },
   "category_breakdown": {
     "exact_duplicates": {
@@ -181,6 +192,36 @@
     "ambiguous_similar_names": {
       "total": 3,
       "correct": 3,
+      "accuracy": 1.0
+    },
+    "obvious_exact_match": {
+      "total": 1,
+      "correct": 1,
+      "accuracy": 1.0
+    },
+    "strong_fuzzy_match": {
+      "total": 1,
+      "correct": 1,
+      "accuracy": 1.0
+    },
+    "ambiguous_match": {
+      "total": 1,
+      "correct": 1,
+      "accuracy": 1.0
+    },
+    "no_plausible_match": {
+      "total": 1,
+      "correct": 1,
+      "accuracy": 1.0
+    },
+    "duplicate_looking_entities": {
+      "total": 1,
+      "correct": 1,
+      "accuracy": 1.0
+    },
+    "review_required": {
+      "total": 2,
+      "correct": 2,
       "accuracy": 1.0
     }
   },
@@ -236,8 +277,8 @@
       "expected_match": true,
       "predicted_match": true,
       "case_category": "whitespace",
-      "method_used": "normalized",
-      "confidence_score": 0.95,
+      "method_used": "exact",
+      "confidence_score": 0.98,
       "decision": "MATCH"
     },
     {
@@ -401,8 +442,8 @@
       "expected_match": true,
       "predicted_match": true,
       "case_category": "legal_suffixes",
-      "method_used": "normalized",
-      "confidence_score": 0.95,
+      "method_used": "exact",
+      "confidence_score": 0.98,
       "decision": "MATCH"
     },
     {
@@ -456,9 +497,86 @@
       "expected_match": true,
       "predicted_match": true,
       "case_category": "capitalization",
-      "method_used": "normalized",
-      "confidence_score": 0.95,
+      "method_used": "exact",
+      "confidence_score": 0.98,
       "decision": "MATCH"
+    },
+    {
+      "id": "er-26",
+      "entity_a": "OpenAI",
+      "entity_b": "OpenAI",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "obvious_exact_match",
+      "method_used": "exact",
+      "confidence_score": 1.0,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-27",
+      "entity_a": "ElevenLabs Inc",
+      "entity_b": "ElevenLabs Corporation",
+      "expected_match": true,
+      "predicted_match": true,
+      "case_category": "strong_fuzzy_match",
+      "method_used": "exact",
+      "confidence_score": 0.98,
+      "decision": "MATCH"
+    },
+    {
+      "id": "er-28",
+      "entity_a": "Scale AI",
+      "entity_b": "Scale Studio",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "ambiguous_match",
+      "method_used": "unresolved",
+      "confidence_score": 0.5,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-29",
+      "entity_a": "OpenAI",
+      "entity_b": "Microsoft Corp",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "no_plausible_match",
+      "method_used": "unresolved",
+      "confidence_score": 0.1333333333333333,
+      "decision": "NEW"
+    },
+    {
+      "id": "er-30",
+      "entity_a": "Stripe",
+      "entity_b": "Stripe Press",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "duplicate_looking_entities",
+      "method_used": "unresolved",
+      "confidence_score": 0.6666666666666667,
+      "decision": "REVIEW"
+    },
+    {
+      "id": "er-31",
+      "entity_a": "Synthesia Media",
+      "entity_b": "Synthesia",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "review_required",
+      "method_used": "unresolved",
+      "confidence_score": 0.75,
+      "decision": "REVIEW"
+    },
+    {
+      "id": "er-32",
+      "entity_a": "OpenAI Labs",
+      "entity_b": "OpenAI",
+      "expected_match": false,
+      "predicted_match": false,
+      "case_category": "review_required",
+      "method_used": "unresolved",
+      "confidence_score": 0.7058823529411764,
+      "decision": "REVIEW"
     }
   ]
 }

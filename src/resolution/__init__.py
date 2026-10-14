@@ -4,7 +4,7 @@ from src.resolution.entity_resolver import (
     ResolutionResult,
     normalize_entity_name,
 )
-from src.resolution.review_queue import ReviewQueue, review_queue
+from src.resolution.review_queue import ReviewAction, ReviewQueue, ReviewStatus, review_queue
 
 __all__ = [
     "EntityResolver",
@@ -12,5 +12,7 @@ __all__ = [
     "ResolutionResult",
     "normalize_entity_name",
     "ReviewQueue",
+    "ReviewStatus",
+    "ReviewAction",
     "review_queue",
 ]

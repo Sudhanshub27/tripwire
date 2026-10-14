@@ -223,10 +223,27 @@ def get_processed_entity_log() -> Dict[str, Any]:
     norm = sum(1 for r in formatted_entries if r["method_used"] == "normalized")
     fuzzy = sum(1 for r in formatted_entries if r["method_used"] == "fuzzy")
     unres = sum(1 for r in formatted_entries if r["method_used"] == "unresolved")
-    matches = sum(1 for r in formatted_entries if r["decision"] == "MATCH")
-    reviews = sum(1 for r in formatted_entries if r["decision"] == "REVIEW")
-    news = sum(1 for r in formatted_entries if r["decision"] == "NEW")
+    matches = sum(1 for r in formatted_entries if r["decision"] in ("AUTO_MATCH", "MATCH"))
+    reviews = sum(1 for r in formatted_entries if r["decision"] in ("NEEDS_REVIEW", "REVIEW"))
+    news = sum(1 for r in formatted_entries if r["decision"] in ("NO_MATCH", "NEW"))
     total = len(formatted_entries) or 1
+    avg_conf = (
+        round(sum(float(r["confidence_score"]) for r in formatted_entries) / total, 4)
+        if formatted_entries
+        else 0.0
+    )
+
+    approved_count = 0
+    rejected_count = 0
+    pending_count = reviews
+    try:
+        from src.resolution.review_queue import review_queue
+        rev_stats = review_queue.get_review_stats()
+        approved_count = rev_stats.get("approved", 0)
+        rejected_count = rev_stats.get("rejected", 0)
+        pending_count = rev_stats.get("pending", reviews)
+    except Exception:
+        pass
 
     return {
         "summary": {
@@ -240,8 +257,15 @@ def get_processed_entity_log() -> Dict[str, Any]:
             "unresolvedCount": unres,
             "unresolvedPct": round((unres / total) * 100, 1),
             "matchCount": matches,
-            "reviewCount": reviews,
+            "autoMatchCount": matches,
+            "reviewCount": pending_count,
+            "needsReviewCount": pending_count,
+            "pendingReviewCount": pending_count,
             "newCount": news,
+            "noMatchCount": news,
+            "approvedReviewsCount": approved_count,
+            "rejectedReviewsCount": rejected_count,
+            "avgConfidence": avg_conf,
         },
         "entries": formatted_entries,
     }

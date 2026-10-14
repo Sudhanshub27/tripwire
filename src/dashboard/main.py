@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from src.dashboard.processed_reader import (
     get_all_processed_records,
@@ -232,20 +233,33 @@ async def get_entity_log() -> Dict[str, Any]:
     return get_processed_entity_log()
 
 
+class ReviewActionPayload(BaseModel):
+    """Payload for human review approve/reject actions."""
+
+    reviewer: Optional[str] = "human_reviewer"
+    notes: Optional[str] = None
+
+
+@app.get("/reviews")
+@app.get("/api/reviews")
 @app.get("/api/resolution/review")
 async def get_resolution_reviews(
-    status: Optional[str] = Query(default="REVIEW", description="Review status filter: REVIEW, APPROVED, REJECTED, ALL")
+    status: Optional[str] = Query(default="pending", description="Review status filter: pending, approved, rejected, all"),
 ) -> List[Dict[str, Any]]:
-    """Fetch persistent entity resolution review queue items."""
-    if status == "ALL":
+    """Fetch persistent entity resolution review queue items with status filtering."""
+    st = (status or "pending").lower().strip()
+    if st in ("all", "*"):
         reviews = review_queue.list_all_reviews()
-    elif status:
-        all_revs = review_queue.list_all_reviews()
-        reviews = [r for r in all_revs if r.get("decision") == status.upper()]
-    else:
+    elif st in ("pending", "review", "needs_review"):
         reviews = review_queue.get_pending_reviews()
+    elif st in ("approved", "approve"):
+        reviews = review_queue.get_reviews_by_status("APPROVED")
+    elif st in ("rejected", "reject"):
+        reviews = review_queue.get_reviews_by_status("REJECTED")
+    else:
+        reviews = review_queue.get_reviews_by_status(status.upper())
 
-    if not reviews and settings.MOCK_MODE:
+    if not reviews and settings.MOCK_MODE and st in ("pending", "review", "needs_review", "all"):
         return [
             {
                 "id": "rev-00101",
@@ -255,6 +269,7 @@ async def get_resolution_reviews(
                 "fuzzy_score": 0.86,
                 "confidence": 0.82,
                 "decision": "REVIEW",
+                "status": "PENDING",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "TechCrunch RSS",
                 "match_reason": "Ambiguous fuzzy similarity (86.0%) in review range [65.0%, 85.0%)",
@@ -267,6 +282,7 @@ async def get_resolution_reviews(
                 "fuzzy_score": 0.78,
                 "confidence": 0.75,
                 "decision": "REVIEW",
+                "status": "PENDING",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "ProductHunt Feed",
                 "match_reason": "Ambiguous fuzzy similarity (78.0%) in review range [65.0%, 85.0%)",
@@ -275,43 +291,104 @@ async def get_resolution_reviews(
     return reviews
 
 
-@app.post("/api/resolution/review/{id}/approve")
-async def approve_resolution_review(id: str) -> Dict[str, Any]:
-    """Approve ambiguous entity resolution match, merging candidate into canonical entity."""
-    updated = review_queue.approve_review(id)
+@app.get("/reviews/stats")
+@app.get("/api/reviews/stats")
+@app.get("/api/resolution/review/stats")
+async def get_resolution_review_stats() -> Dict[str, Any]:
+    """Get aggregated review queue metrics (total, pending, approved, rejected)."""
+    return review_queue.get_review_stats()
+
+
+@app.get("/reviews/{review_id}")
+@app.get("/api/reviews/{review_id}")
+@app.get("/api/resolution/review/{review_id}")
+async def get_resolution_review_by_id(review_id: str) -> Dict[str, Any]:
+    """Fetch a single review item by ID, including its full audit trail."""
+    review = review_queue.get_review_by_id(review_id)
+    if not review:
+        raise HTTPException(status_code=404, detail=f"Review item '{review_id}' not found")
+    return review
+
+
+@app.get("/reviews/{review_id}/audit")
+@app.get("/api/reviews/{review_id}/audit")
+async def get_resolution_review_audit(review_id: str) -> List[Dict[str, Any]]:
+    """Fetch immutable audit trail history for a specific review item."""
+    review = review_queue.get_review_by_id(review_id)
+    if not review:
+        raise HTTPException(status_code=404, detail=f"Review item '{review_id}' not found")
+    return review_queue.get_review_audit_trail(review_id)
+
+
+@app.post("/reviews/{review_id}/approve")
+@app.post("/api/reviews/{review_id}/approve")
+@app.post("/api/resolution/review/{review_id}/approve")
+async def approve_resolution_review(
+    review_id: str,
+    payload: Optional[ReviewActionPayload] = None,
+) -> Dict[str, Any]:
+    """
+    Approve ambiguous entity resolution match, merging candidate into canonical entity.
+    Fails safely with 409 Conflict if review was already rejected or approved.
+    """
+    reviewer = payload.reviewer if payload else "human_reviewer"
+    notes = payload.notes if payload else None
+
+    try:
+        updated = review_queue.approve_review(review_id, notes=notes, reviewer=reviewer)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
     if not updated:
-        if settings.MOCK_MODE and id in ("rev-00101", "rev-00102"):
+        if settings.MOCK_MODE and review_id in ("rev-00101", "rev-00102"):
             return {
                 "status": "approved",
                 "review": {
-                    "id": id,
+                    "id": review_id,
                     "candidate": "Open AI Inc",
                     "canonical": "OpenAI",
                     "decision": "APPROVED",
+                    "status": "APPROVED",
                 },
             }
-        raise HTTPException(status_code=404, detail=f"Review item '{id}' not found")
+        raise HTTPException(status_code=404, detail=f"Review item '{review_id}' not found")
 
     dashboard_resolver.add_approved_alias(updated["candidate"], updated["canonical"])
     return {"status": "approved", "review": updated}
 
 
-@app.post("/api/resolution/review/{id}/reject")
-async def reject_resolution_review(id: str) -> Dict[str, Any]:
-    """Reject ambiguous entity resolution match, keeping candidate as a separate NEW entity."""
-    updated = review_queue.reject_review(id)
+@app.post("/reviews/{review_id}/reject")
+@app.post("/api/reviews/{review_id}/reject")
+@app.post("/api/resolution/review/{review_id}/reject")
+async def reject_resolution_review(
+    review_id: str,
+    payload: Optional[ReviewActionPayload] = None,
+) -> Dict[str, Any]:
+    """
+    Reject ambiguous entity resolution match, keeping candidate as a distinct entity.
+    Fails safely with 409 Conflict if review was already approved or rejected.
+    """
+    reviewer = payload.reviewer if payload else "human_reviewer"
+    notes = payload.notes if payload else None
+
+    try:
+        updated = review_queue.reject_review(review_id, notes=notes, reviewer=reviewer)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
     if not updated:
-        if settings.MOCK_MODE and id in ("rev-00101", "rev-00102"):
+        if settings.MOCK_MODE and review_id in ("rev-00101", "rev-00102"):
             return {
                 "status": "rejected",
                 "review": {
-                    "id": id,
+                    "id": review_id,
                     "candidate": "Open AI Inc",
                     "canonical": "OpenAI",
                     "decision": "REJECTED",
+                    "status": "REJECTED",
                 },
             }
-        raise HTTPException(status_code=404, detail=f"Review item '{id}' not found")
+        raise HTTPException(status_code=404, detail=f"Review item '{review_id}' not found")
 
     return {"status": "rejected", "review": updated}
 

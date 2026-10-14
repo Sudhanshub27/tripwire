@@ -58,6 +58,17 @@ class MetricsCollector:
             "fuzzy": 0,
             "unresolved": 0,
         }
+        # Entity resolution metrics (Phase 3)
+        self.er_total: int = 0
+        self.er_auto_matched: int = 0
+        self.er_needs_review: int = 0
+        self.er_no_match: int = 0
+        self.er_review_approved: int = 0
+        self.er_review_rejected: int = 0
+        self.er_confidence_sum: float = 0.0
+        self.er_confidence_count: int = 0
+        self.er_latency_sum: float = 0.0
+        self.er_latency_count: int = 0
         # Incremental processing counters
         self.incremental_total: int = 0
         self.incremental_new: int = 0
@@ -91,6 +102,82 @@ class MetricsCollector:
             self.er_merges[m] += 1
         else:
             self.er_merges["unresolved"] += 1
+
+    def record_er_resolution(self, decision: Any, confidence: float, latency_seconds: float = 0.0):
+        """Record entity resolution decision, confidence, and latency."""
+        self.er_total += 1
+        d_raw = decision.value if hasattr(decision, "value") else str(decision)
+        d = d_raw.upper()
+        if d in ("AUTO_MATCH", "MATCH"):
+            self.er_auto_matched += 1
+        elif d in ("NEEDS_REVIEW", "REVIEW"):
+            self.er_needs_review += 1
+        elif d in ("NO_MATCH", "NEW", "UNRESOLVED"):
+            self.er_no_match += 1
+
+        self.er_confidence_sum += float(confidence)
+        self.er_confidence_count += 1
+        if latency_seconds > 0.0:
+            self.er_latency_sum += float(latency_seconds)
+            self.er_latency_count += 1
+
+    def record_er_review_action(self, action: str):
+        """Record human review action (approve / reject)."""
+        act = action.lower()
+        if act in ("approve", "approved"):
+            self.er_review_approved += 1
+        elif act in ("reject", "rejected"):
+            self.er_review_rejected += 1
+
+    def reset_er_metrics(self):
+        """Reset entity resolution metric counters."""
+        self.er_total = 0
+        self.er_auto_matched = 0
+        self.er_needs_review = 0
+        self.er_no_match = 0
+        self.er_review_approved = 0
+        self.er_review_rejected = 0
+        self.er_confidence_sum = 0.0
+        self.er_confidence_count = 0
+        self.er_latency_sum = 0.0
+        self.er_latency_count = 0
+        self.er_merges = {
+            "exact": 0,
+            "normalized": 0,
+            "fuzzy": 0,
+            "unresolved": 0,
+        }
+
+    def get_er_metrics(self) -> Dict[str, Any]:
+        """Return snapshot of entity resolution metrics."""
+        avg_conf = (
+            round(self.er_confidence_sum / self.er_confidence_count, 4)
+            if self.er_confidence_count > 0
+            else 0.0
+        )
+        avg_lat = (
+            round((self.er_latency_sum / self.er_latency_count) * 1000.0, 2)
+            if self.er_latency_count > 0
+            else 0.0
+        )
+        queue_size = 0
+        try:
+            from src.resolution.review_queue import review_queue
+            queue_size = len(review_queue.get_pending_reviews())
+        except Exception:
+            queue_size = max(0, self.er_needs_review - self.er_review_approved - self.er_review_rejected)
+
+        return {
+            "entity_resolution_total": self.er_total,
+            "entity_resolution_auto_matched": self.er_auto_matched,
+            "entity_resolution_needs_review": self.er_needs_review,
+            "entity_resolution_no_match": self.er_no_match,
+            "entity_resolution_review_approved": self.er_review_approved,
+            "entity_resolution_review_rejected": self.er_review_rejected,
+            "average_confidence": avg_conf,
+            "review_queue_size": queue_size,
+            "resolution_latency_avg_ms": avg_lat,
+        }
 
     def record_incremental_decision(
         self,
@@ -183,6 +270,38 @@ class MetricsCollector:
         ])
         for method, count in self.er_merges.items():
             lines.append(f'graphone_entity_resolution_merges_total{{method="{method}"}} {count}')
+
+        # Entity Resolution 2.0 Prometheus Metrics (Phase 3)
+        er_stats = self.get_er_metrics()
+        lines.extend([
+            "# HELP graphone_entity_resolution_total Total entity resolution evaluations.",
+            "# TYPE graphone_entity_resolution_total counter",
+            f"graphone_entity_resolution_total {self.er_total}",
+            "# HELP graphone_entity_resolution_auto_matched Total auto-matched entities.",
+            "# TYPE graphone_entity_resolution_auto_matched counter",
+            f"graphone_entity_resolution_auto_matched {self.er_auto_matched}",
+            "# HELP graphone_entity_resolution_needs_review Total entities flagged for human review.",
+            "# TYPE graphone_entity_resolution_needs_review counter",
+            f"graphone_entity_resolution_needs_review {self.er_needs_review}",
+            "# HELP graphone_entity_resolution_no_match Total distinct entities with no match found.",
+            "# TYPE graphone_entity_resolution_no_match counter",
+            f"graphone_entity_resolution_no_match {self.er_no_match}",
+            "# HELP graphone_entity_resolution_review_approved Total reviews approved by human reviewers.",
+            "# TYPE graphone_entity_resolution_review_approved counter",
+            f"graphone_entity_resolution_review_approved {self.er_review_approved}",
+            "# HELP graphone_entity_resolution_review_rejected Total reviews rejected by human reviewers.",
+            "# TYPE graphone_entity_resolution_review_rejected counter",
+            f"graphone_entity_resolution_review_rejected {self.er_review_rejected}",
+            "# HELP graphone_entity_resolution_avg_confidence Average confidence score across resolutions.",
+            "# TYPE graphone_entity_resolution_avg_confidence gauge",
+            f"graphone_entity_resolution_avg_confidence {er_stats['average_confidence']}",
+            "# HELP graphone_entity_resolution_review_queue_size Current pending review queue size.",
+            "# TYPE graphone_entity_resolution_review_queue_size gauge",
+            f"graphone_entity_resolution_review_queue_size {er_stats['review_queue_size']}",
+            "# HELP graphone_entity_resolution_avg_latency_seconds Average resolution latency in seconds.",
+            "# TYPE graphone_entity_resolution_avg_latency_seconds gauge",
+            f"graphone_entity_resolution_avg_latency_seconds {round(er_stats['resolution_latency_avg_ms'] / 1000.0, 4)}",
+        ])
 
         # Incremental Processing Prometheus Counters
         lines.extend([

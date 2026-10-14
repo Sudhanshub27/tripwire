@@ -173,5 +173,54 @@
     "entity_b": "AnyScale",
     "expected_match": true,
     "case_category": "capitalization"
+  },
+  {
+    "id": "er-26",
+    "entity_a": "OpenAI",
+    "entity_b": "OpenAI",
+    "expected_match": true,
+    "case_category": "obvious_exact_match"
+  },
+  {
+    "id": "er-27",
+    "entity_a": "ElevenLabs Inc",
+    "entity_b": "ElevenLabs Corporation",
+    "expected_match": true,
+    "case_category": "strong_fuzzy_match"
+  },
+  {
+    "id": "er-28",
+    "entity_a": "Scale AI",
+    "entity_b": "Scale Studio",
+    "expected_match": false,
+    "case_category": "ambiguous_match"
+  },
+  {
+    "id": "er-29",
+    "entity_a": "OpenAI",
+    "entity_b": "Microsoft Corp",
+    "expected_match": false,
+    "case_category": "no_plausible_match"
+  },
+  {
+    "id": "er-30",
+    "entity_a": "Stripe",
+    "entity_b": "Stripe Press",
+    "expected_match": false,
+    "case_category": "duplicate_looking_entities"
+  },
+  {
+    "id": "er-31",
+    "entity_a": "Synthesia Media",
+    "entity_b": "Synthesia",
+    "expected_match": false,
+    "case_category": "review_required"
+  },
+  {
+    "id": "er-32",
+    "entity_a": "OpenAI Labs",
+    "entity_b": "OpenAI",
+    "expected_match": false,
+    "case_category": "review_required"
   }
 ]

@@ -190,3 +190,82 @@ While relational storage excels at schema validation and tabular aggregation, mo
 | **Primary Role** | Structured Entity Storage & Deduplication | Multi-hop Intelligence Graph Querying | Postgres ensures schema validation; Neo4j enables relationship discovery. |
 | **Query Strengths** | Column filtering, aggregation, CRUD | Traversals (`Startup` ➔ `Product` ➔ `Paper` ➔ `Job`) | Use Postgres for ingestion pipeline targets; sync graph edges to Neo4j downstream. |
 | **Write Performance** | High-throughput batch inserts | Moderate-throughput graph updates | Batch write relational entities first, stream graph delta edge updates via CDC. |
+
+---
+
+## 5. Entity Resolution 2.0 & Persistent Human Review Pipeline
+
+### Overview
+Entity Resolution 2.0 transforms entity deduplication into a production-grade resolution engine separating **deterministic candidate generation (blocking)** from **explainable multi-signal scoring** and **human-in-the-loop governance**.
+
+```
+                   [ Input Candidate Entity ]
+                                │
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ 1. Deterministic Candidate Generation        │
+         │    (Token Inverted Index + 3-gram Blocking)  │
+         │    O(N) -> O(K) reduction (K <= 20)          │
+         └──────────────────────┬───────────────────────┘
+                                │ Plausible Candidates
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ 2. Multi-Signal Deterministic Scoring        │
+         │    - Exact Alias Match        (1.00)         │
+         │    - Normalized Suffix Match  (0.98)         │
+         │    - Acronym Expansion Match  (0.95)         │
+         │    - Normalized Token Ratio   [0.0, 1.0]     │
+         │    - RapidFuzz Token Sort/Set [0.0, 1.0]     │
+         └──────────────────────┬───────────────────────┘
+                                │ Best Scored Candidate (Confidence C)
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ 3. Explicit Decision Routing Thresholds      │
+         └──────┬───────────────┼───────────────┬───────┘
+                │               │               │
+        C >= 0.85      0.65 <= C < 0.85       C < 0.65
+                │               │               │
+                ▼               ▼               ▼
+         [ AUTO_MATCH ]  [ NEEDS_REVIEW ]  [ NO_MATCH ]
+         Auto-merge into Persistent Review  Create New
+         Canonical Entity Queue (SQLite)    Distinct Entity
+                                │
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ 4. Human Review & Audit Lifecycle            │
+         │    - GET  /reviews?status=pending            │
+         │    - POST /reviews/{id}/approve              │
+         │    - POST /reviews/{id}/reject               │
+         │    - Immutable SQL Audit Trail               │
+         │    - Concurrency Lock & 409 Conflict Safety  │
+         └──────────────────────────────────────────────┘
+```
+
+### Deterministic Confidence Scoring & Signal Model
+Confidence scoring evaluates explainable signals without heuristic guesswork:
+1. **Exact Alias Match** ($C = 1.00$): The raw string exactly matches a canonical name or known alias.
+2. **Normalized String Match** ($C = 0.98$): Equality after stripping legal corporate suffixes (`Inc`, `Corp`, `LLC`, `PBC`, `GmbH`) and punctuation.
+3. **Acronym Expansion Match** ($C = 0.95$): Single-token abbreviation expands to the first letters of canonical multi-word tokens (e.g. `AWS` $\rightarrow$ `Amazon Web Services`).
+4. **Fuzzy RapidFuzz Token Sort / Set Ratio**: Token-level Levenshtein similarity accounting for word reordering.
+
+### Threshold Rationale
+- **`AUTO_MATCH` ($\ge 0.85$)**: High-confidence match threshold determined by zero-false-positive empirical validation. Guarantees safe automated merging.
+- **`NEEDS_REVIEW` ($0.65 \le C < 0.85$)**: Ambiguous matches (e.g., sub-brands like `Scale Studio` vs `Scale AI`, `Synthesia Media` vs `Synthesia`). Persisted to `ReviewQueue` for human decision.
+- **`NO_MATCH` ($< 0.65$)**: Unrelated entities or weak similarities. Automatically treated as distinct entities.
+
+### Human Review Queue & Audit Architecture
+- **Storage Layer**: ACID-compliant SQLite (`data/processed/resolution_reviews.db`) with an auto-synced JSONL mirror (`resolution_review_queue.jsonl`).
+- **Atomic State Transitions**: Thread-safe updates condition on `WHERE id = ? AND (status = 'PENDING' OR decision = 'REVIEW')`, rejecting concurrent double-adjudication with HTTP 409 Conflict.
+- **Immutable Audit Log**: Every lifecycle state change (`ENQUEUE`, `APPROVE`, `REJECT`) records an append-only entry in `resolution_review_audit` with reviewer identity, timestamp, previous state, new state, notes, and matching signals snapshot.
+
+### Operational Metrics & Prometheus Exposition
+Exposes Prometheus gauges, counters, and histograms via `src/observability/metrics.py`:
+- `graphone_entity_resolution_total`: Cumulative resolutions processed.
+- `graphone_entity_resolution_auto_matched`: Resolutions auto-merged.
+- `graphone_entity_resolution_needs_review`: Resolutions enqueued for review.
+- `graphone_entity_resolution_no_match`: Resolutions marked distinct.
+- `graphone_entity_resolution_review_approved`: Human approved reviews.
+- `graphone_entity_resolution_review_rejected`: Human rejected reviews.
+- `graphone_entity_resolution_confidence_average`: Running average resolution confidence.
+- `graphone_entity_resolution_queue_size`: Active pending review queue count.
+- `graphone_entity_resolution_latency_seconds_average`: Running average resolution duration.
