@@ -559,3 +559,193 @@ Integrated with `src/observability/metrics.py`:
 ### Known Limitations & Future Work
 1. **In-Memory Graph Adjacency**: Current graph indexing operates in-process via optimized adjacency dictionaries. For datasets exceeding $10^7$ edges, migration to an external graph store (Neo4j / Memgraph) or LanceDB Graph extension is recommended.
 2. **Fixed Distance Decay**: The decay formula $\frac{1}{1 + 0.5 \cdot d}$ is static. Learning relationship-specific decay coefficients per edge type via ranking optimization is an area for future tuning.
+
+---
+
+## 7. Phase 6: Citation-Aware Grounded RAG Engine
+
+### Overview & Motivation
+Standard Retrieval-Augmented Generation (RAG) models frequently generate answers with hallucinated facts, nonexistent citations, or citations attached to irrelevant retrieved chunks. Furthermore, many systems conflate citation reference formatting with semantic entailment.
+
+Phase 6 introduces a production-ready **Citation-Aware Grounded RAG Engine** with verifiable source provenance, evidence-aware abstention, and multi-stage citation validation.
+
+```
+[ Natural Language Question ]
+              │
+              ▼
+  [ Stage 1: Hybrid Retrieval ]
+  (Dense Vector Search + Knowledge Graph Multi-Hop BFS)
+              │
+              ▼
+  [ Stage 2: Provenance Assembly ]
+  (1-Indexed Chunks: doc_id, chunk_id, title, url, page, text)
+              │
+              ▼
+  [ Stage 3: Evidence Policy & Sufficiency Check ]
+  - Token coverage & retrieval score thresholds
+  - If evidence missing/unrelated ➔ ABSTAIN ("I do not have sufficient verifiable evidence...")
+              │
+              ▼ (If Sufficient)
+  [ Stage 4: Grounded Answer Generation ]
+  (Synthesizes facts from sources with inline [1], [2] citations)
+              │
+              ▼
+  [ Stage 5: Multi-Stage Citation Validation Layer ]
+  ├─ Reference Validity: 1 <= [N] <= len(sources); no fabricated IDs
+  ├─ Semantic Entailment: Verifies cited chunk actually supports the claim
+  ├─ Conflict Detection: Identifies contradictions across sources
+  └─ Fault Tolerance: Graceful handling of validator timeouts/exceptions
+              │
+              ▼
+  [ Structured Response & Telemetry Export ]
+  (answer, citations, sources, abstained, validation_status, execution metrics)
+```
+
+### Citation Format & Source Mapping
+Answers format citations using bracketed index markers:
+- Single citation: `[1]`
+- Grouped joint citations: `[1][2]` or `[1, 2]` (supporting claims synthesized jointly from multiple chunks)
+- Sequential claim citations: `Sentence A [1]. Sentence B [2].`
+
+Every citation references a 1-based source index corresponding directly to a retrieved chunk in the `sources` list.
+
+### Provenance Data Model
+Every retrieved chunk carries full provenance metadata via `SourceChunkProvenance`:
+- `index`: 1-based reference integer matching `[index]`.
+- `source_id`: Canonical entity ID (`node-{type}-{slug}`).
+- `document_id`: Stable document identifier (`doc-{type}-{slug}`).
+- `chunk_id`: Stable chunk identifier (`{doc_id}:chunk-{N}`).
+- `title`: Display title or canonical entity name.
+- `source_url`: Verified origin URL or preprint link (`None` if unavailable; never fabricated).
+- `page_number`: Document page number (`None` if unavailable).
+- `section`: Document section header (`None` if unavailable).
+- `text`: Verifiable content text excerpt.
+- `retrieval_method`: Retrieval pathway (`VECTOR`, `GRAPH`, `BOTH`).
+- `retrieval_score`: Deterministic hybrid retrieval score.
+- `metadata`: Raw verified entity attributes.
+
+### Multi-Stage Citation Validation
+The validation layer (`CitationValidator`) evaluates generated answers and citations across several distinct stages:
+
+#### 1. Reference Validity
+Checks that every citation marker `[N]` in the text resolves to an actual retrieved chunk ($1 \le N \le \text{len}(\text{sources})$).
+Rejects:
+- Nonexistent citation markers (e.g. `[99]`).
+- Fabricated source IDs or document IDs claiming identity not present in retrieved context.
+Status on failure: `INVALID_REFERENCE`.
+
+#### 2. Semantic Entailment & Claim Support
+Distinguishes reference validity from semantic support. A citation ID may resolve to a valid chunk, but that chunk may fail to support the claim (e.g. citing an article about Claude when making a claim about solar panels).
+- Checks that non-title factual terms and numbers (currency, dates, metrics) in the claim are attested in the cited source text.
+- Supports joint multi-source verification: when citations `[1, 2]` are attached to a synthesized claim, support is verified against the joint union of the cited sources.
+Status on failure: `UNSUPPORTED_CLAIM`.
+
+#### 3. Conflicting Evidence Detection
+Detects when multiple retrieved sources make conflicting assertions about the same entity (e.g., conflicting founding dates or funding amounts), adding diagnostic warnings to the response without crashing.
+
+#### 4. Safe Error Handling
+If an external validator (e.g., LLM provider) encounters a network timeout, quota limit, or parsing exception, the system safely falls back to deterministic heuristic validation and logs `VALIDATION_ERROR` telemetry rather than terminating the pipeline.
+
+### Evidence-Aware Abstention Policy
+The system refuses to generate speculative or ungrounded answers when evidence is inadequate.
+- Evaluates query content token coverage against the retrieved sources.
+- When coverage is low or query terms are absent:
+  - Sets `abstained = True`.
+  - Returns standard grounded abstention statement: `"I do not have sufficient verifiable evidence in the retrieved sources to answer this question. The available sources are insufficient to support a grounded factual answer."`.
+  - Sets `validation_status = ValidationStatus.INSUFFICIENT_EVIDENCE`.
+  - Sets `citations = []`.
+
+### API Schemas
+
+#### `POST /api/rag/query` & `POST /rag/query`
+Request:
+```json
+{
+  "query": "Where is Anthropic located and what foundation models does it develop?",
+  "candidate_type": "all",
+  "vector_limit": 10,
+  "graph_depth": 2,
+  "vector_weight": 0.6,
+  "graph_weight": 0.4,
+  "ranking_strategy": "weighted",
+  "limit": 5,
+  "semantic_validation": true
+}
+```
+Response (`RAGQueryResponse`):
+```json
+{
+  "query": "Where is Anthropic located and what foundation models does it develop?",
+  "answer": "Anthropic is based in San Francisco, CA [1] and develops Claude 3.5 Sonnet [2].",
+  "citations": [
+    {
+      "citation_id": 1,
+      "source_id": "node-startup-anthropic",
+      "chunk_id": "doc-startup-anthropic:chunk-0",
+      "document_id": "doc-startup-anthropic",
+      "claim_text": "Anthropic is based in San Francisco, CA [1]",
+      "reference_valid": true,
+      "claim_supported": true
+    },
+    {
+      "citation_id": 2,
+      "source_id": "node-product-claude",
+      "chunk_id": "doc-product-claude:chunk-0",
+      "document_id": "doc-product-claude",
+      "claim_text": "and develops Claude 3.5 Sonnet [2].",
+      "reference_valid": true,
+      "claim_supported": true
+    }
+  ],
+  "sources": [
+    {
+      "index": 1,
+      "source_id": "node-startup-anthropic",
+      "document_id": "doc-startup-anthropic",
+      "chunk_id": "doc-startup-anthropic:chunk-0",
+      "title": "Anthropic, Inc.",
+      "source_url": "https://techcrunch.com/anthropic",
+      "page_number": 1,
+      "section": "Company Profile",
+      "text": "Anthropic is an AI safety research company based in San Francisco, CA...",
+      "retrieval_method": "VECTOR",
+      "retrieval_score": 0.92
+    }
+  ],
+  "abstained": false,
+  "validation_status": "VALID",
+  "execution_ms": 1.45,
+  "generation_ms": 0.22,
+  "validation_ms": 0.15
+}
+```
+
+#### `POST /api/rag/validate` & `POST /rag/validate`
+Validates external or pre-generated answers and citations against provided sources.
+
+### Empirical Evaluation & Measured Results
+Evaluated using `evaluation/citation_evaluator.py` across 12 canonical ground-truth test scenarios (`evaluation/datasets/citation_eval_dataset.json`):
+
+| Metric | Measured Value | Denominator / Reference |
+| :--- | :---: | :--- |
+| **Citation Reference Validity** | **78.6%** | Valid citations / total citation markers (includes adversarial test cases) |
+| **Claim-Level Citation Coverage** | **87.5%** | Cited factual claims / total factual claims |
+| **Citation Faithfulness** | **72.7%** | Semantically entailed citations / valid citations |
+| **Unsupported-Claim Rate** | **12.5%** | Unsupported claims / total factual claims |
+| **Abstention Correctness** | **83.3%** | Correct abstentions / total test queries |
+| **Validation Latency (Mean)** | **0.06 ms** | p50: 0.03 ms, p95: 0.22 ms |
+
+### Observability Metrics
+Integrated with `src/observability/metrics.py`:
+- `graphone_rag_queries_total`: Total RAG queries executed.
+- `graphone_rag_citation_validations_total`: Total citation markers validated.
+- `graphone_rag_invalid_citations_total`: Total unresolvable citations detected.
+- `graphone_rag_unsupported_claims_total`: Total unsupported factual claims flagged.
+- `graphone_rag_abstentions_total`: Total queries where system abstained.
+- `graphone_rag_validation_failures_total`: Total validator errors or timeouts.
+- `graphone_rag_query_avg_latency_seconds`: Average RAG query latency.
+- `graphone_rag_validation_avg_latency_seconds`: Average citation validation latency.
+
+### Known Limitations
+1. **Heuristic Token Overlap**: While the deterministic heuristic validator operates at sub-millisecond speeds (< 0.1 ms), nuanced linguistic inference (such as double negations or complex counterfactuals) benefits from an LLM-based validator when latency permits.
+2. **Document Segmentation**: For lengthy technical papers, chunks currently represent executive summaries and abstracts; fine-grained PDF multi-page bounding box citations will be incorporated in future indexing expansions.

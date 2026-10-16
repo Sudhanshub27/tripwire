@@ -102,6 +102,17 @@ class MetricsCollector:
         self.hybrid_merged_candidates: int = 0
         self.hybrid_final_results: int = 0
         self.hybrid_graph_expansions_truncated: int = 0
+        # Citation-Aware RAG metrics (Phase 6)
+        self.rag_queries_total: int = 0
+        self.rag_citation_validations_total: int = 0
+        self.rag_invalid_citations_total: int = 0
+        self.rag_unsupported_claims_total: int = 0
+        self.rag_abstentions_total: int = 0
+        self.rag_validation_failures_total: int = 0
+        self.rag_query_latency_sum: float = 0.0
+        self.rag_query_latency_count: int = 0
+        self.rag_validation_latency_sum: float = 0.0
+        self.rag_validation_latency_count: int = 0
 
     def record_ingested_entity(self, entity_type: str, count: int = 1):
         """Record newly ingested entity count."""
@@ -373,6 +384,83 @@ class MetricsCollector:
             "hybrid_graph_expansions_truncated": self.hybrid_graph_expansions_truncated,
         }
 
+    def record_rag_query(
+        self,
+        latency_seconds: float,
+        citations_count: int = 0,
+        invalid_citations_count: int = 0,
+        unsupported_claims_count: int = 0,
+        is_abstained: bool = False,
+        validation_status: str = "VALID",
+    ):
+        """Record Citation-Aware RAG query telemetry and citation outcomes."""
+        self.rag_queries_total += 1
+        self.rag_query_latency_sum += float(latency_seconds)
+        self.rag_query_latency_count += 1
+        self.rag_citation_validations_total += int(citations_count)
+        self.rag_invalid_citations_total += int(invalid_citations_count)
+        self.rag_unsupported_claims_total += int(unsupported_claims_count)
+        if is_abstained:
+            self.rag_abstentions_total += 1
+        if validation_status == "VALIDATION_ERROR":
+            self.rag_validation_failures_total += 1
+
+    def record_citation_validation(
+        self,
+        is_valid: bool,
+        is_semantic_supported: bool,
+        is_error: bool = False,
+        latency_seconds: float = 0.0,
+    ):
+        """Record standalone citation validation execution."""
+        self.rag_citation_validations_total += 1
+        if not is_valid:
+            self.rag_invalid_citations_total += 1
+        if not is_semantic_supported:
+            self.rag_unsupported_claims_total += 1
+        if is_error:
+            self.rag_validation_failures_total += 1
+        if latency_seconds > 0:
+            self.rag_validation_latency_sum += float(latency_seconds)
+            self.rag_validation_latency_count += 1
+
+    def reset_rag_metrics(self):
+        """Reset Citation-Aware RAG metrics counters."""
+        self.rag_queries_total = 0
+        self.rag_citation_validations_total = 0
+        self.rag_invalid_citations_total = 0
+        self.rag_unsupported_claims_total = 0
+        self.rag_abstentions_total = 0
+        self.rag_validation_failures_total = 0
+        self.rag_query_latency_sum = 0.0
+        self.rag_query_latency_count = 0
+        self.rag_validation_latency_sum = 0.0
+        self.rag_validation_latency_count = 0
+
+    def get_rag_metrics(self) -> Dict[str, Any]:
+        """Return snapshot of Citation-Aware RAG metrics."""
+        avg_q_lat = (
+            round((self.rag_query_latency_sum / self.rag_query_latency_count) * 1000.0, 2)
+            if self.rag_query_latency_count > 0
+            else 0.0
+        )
+        avg_v_lat = (
+            round((self.rag_validation_latency_sum / self.rag_validation_latency_count) * 1000.0, 2)
+            if self.rag_validation_latency_count > 0
+            else 0.0
+        )
+        return {
+            "rag_queries_total": self.rag_queries_total,
+            "rag_citation_validations_total": self.rag_citation_validations_total,
+            "rag_invalid_citations_total": self.rag_invalid_citations_total,
+            "rag_unsupported_claims_total": self.rag_unsupported_claims_total,
+            "rag_abstentions_total": self.rag_abstentions_total,
+            "rag_validation_failures_total": self.rag_validation_failures_total,
+            "rag_query_avg_latency_ms": avg_q_lat,
+            "rag_validation_avg_latency_ms": avg_v_lat,
+        }
+
+
     def generate_prometheus_format(self) -> str:
         """Generate Prometheus exposition text format for /metrics scraping."""
         lines: List[str] = [
@@ -522,6 +610,35 @@ class MetricsCollector:
             "# HELP graphone_hybrid_graph_truncated_total Total hybrid queries where graph expansions were capped.",
             "# TYPE graphone_hybrid_graph_truncated_total counter",
             f"graphone_hybrid_graph_truncated_total {self.hybrid_graph_expansions_truncated}",
+        ])
+
+        # Citation-Aware RAG Prometheus Metrics (Phase 6)
+        rag_stats = self.get_rag_metrics()
+        lines.extend([
+            "# HELP graphone_rag_queries_total Total Citation-Aware RAG queries executed.",
+            "# TYPE graphone_rag_queries_total counter",
+            f"graphone_rag_queries_total {self.rag_queries_total}",
+            "# HELP graphone_rag_citation_validations_total Total citation validations evaluated.",
+            "# TYPE graphone_rag_citation_validations_total counter",
+            f"graphone_rag_citation_validations_total {self.rag_citation_validations_total}",
+            "# HELP graphone_rag_invalid_citations_total Total invalid citations detected.",
+            "# TYPE graphone_rag_invalid_citations_total counter",
+            f"graphone_rag_invalid_citations_total {self.rag_invalid_citations_total}",
+            "# HELP graphone_rag_unsupported_claims_total Total unsupported factual claims flagged.",
+            "# TYPE graphone_rag_unsupported_claims_total counter",
+            f"graphone_rag_unsupported_claims_total {self.rag_unsupported_claims_total}",
+            "# HELP graphone_rag_abstentions_total Total queries where RAG abstained due to insufficient evidence.",
+            "# TYPE graphone_rag_abstentions_total counter",
+            f"graphone_rag_abstentions_total {self.rag_abstentions_total}",
+            "# HELP graphone_rag_validation_failures_total Total citation validation errors.",
+            "# TYPE graphone_rag_validation_failures_total counter",
+            f"graphone_rag_validation_failures_total {self.rag_validation_failures_total}",
+            "# HELP graphone_rag_query_avg_latency_seconds Average RAG query latency in seconds.",
+            "# TYPE graphone_rag_query_avg_latency_seconds gauge",
+            f"graphone_rag_query_avg_latency_seconds {round(rag_stats['rag_query_avg_latency_ms'] / 1000.0, 4)}",
+            "# HELP graphone_rag_validation_avg_latency_seconds Average validation latency in seconds.",
+            "# TYPE graphone_rag_validation_avg_latency_seconds gauge",
+            f"graphone_rag_validation_avg_latency_seconds {round(rag_stats['rag_validation_avg_latency_ms'] / 1000.0, 4)}",
         ])
 
         return "\n".join(lines) + "\n"

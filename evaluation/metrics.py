@@ -157,6 +157,68 @@ def calculate_map(retrieved_ids: List[str], relevant_ids: Any, k: int) -> float:
     return round(sum(precisions) / min(len(rel_set), k), 4)
 
 
+# ==============================================================================
+# PHASE 6: CITATION-AWARE RAG EVALUATION METRICS
+# ==============================================================================
+
+
+def calculate_citation_reference_validity(valid_citations: int, total_citations: int) -> float:
+    """
+    Calculate Citation Reference Validity rate: fraction of citation markers that resolve
+    to actual retrieved document chunks.
+    Denominator: total citation markers in response.
+    Returns 1.0 if total_citations == 0 (e.g. valid abstention).
+    """
+    if total_citations <= 0:
+        return 1.0
+    return round(min(1.0, max(0.0, valid_citations / total_citations)), 4)
+
+
+def calculate_claim_citation_coverage(cited_claims: int, total_claims: int) -> float:
+    """
+    Calculate Claim-Level Citation Coverage: fraction of factual claims supported by at least one citation.
+    Denominator: total factual claims in response.
+    Returns 1.0 if total_claims == 0 (e.g. valid abstention).
+    """
+    if total_claims <= 0:
+        return 1.0
+    return round(min(1.0, max(0.0, cited_claims / total_claims)), 4)
+
+
+def calculate_citation_faithfulness(supported_citations: int, valid_citations: int) -> float:
+    """
+    Calculate Citation Faithfulness / Evidence Support: fraction of valid citations whose
+    cited chunk semantically entails and supports the claim.
+    Denominator: total valid citation references evaluated.
+    Returns 1.0 if valid_citations == 0 (e.g. valid abstention).
+    """
+    if valid_citations <= 0:
+        return 1.0
+    return round(min(1.0, max(0.0, supported_citations / valid_citations)), 4)
+
+
+def calculate_unsupported_claim_rate(unsupported_claims: int, total_claims: int) -> float:
+    """
+    Calculate Unsupported Claim Rate: fraction of factual claims lacking verifiable source support.
+    Denominator: total factual claims evaluated.
+    Returns 0.0 if total_claims == 0 (e.g. valid abstention).
+    """
+    if total_claims <= 0:
+        return 0.0
+    return round(min(1.0, max(0.0, unsupported_claims / total_claims)), 4)
+
+
+def calculate_abstention_accuracy(correct_decisions: int, total_queries: int) -> float:
+    """
+    Calculate Abstention Accuracy: fraction of queries correctly answered when evidence is sufficient
+    or correctly abstained from when evidence is insufficient.
+    Denominator: total evaluated queries (supported + unsupported).
+    """
+    if total_queries <= 0:
+        return 1.0
+    return round(min(1.0, max(0.0, correct_decisions / total_queries)), 4)
+
+
 class BenchmarkMetricsCollector:
     """
     Scientific Evaluation Metrics Collector tracking iterations, warm-up,

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import shutil
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -34,9 +35,15 @@ from src.resolution.entity_resolver import EntityResolver
 from src.resolution.graph_linker import graph_linker
 from src.resolution.review_queue import review_queue
 from src.retrieval import (
+    CitationValidationRequest,
+    CitationValidationResponse,
     HybridRetrievalRequest,
     HybridRetrievalResponse,
+    RAGQueryRequest,
+    RAGQueryResponse,
+    citation_validator,
     hybrid_retrieval_service,
+    rag_service,
 )
 from src.vector.vector_store import vector_store
 
@@ -181,6 +188,8 @@ async def get_stats() -> Dict[str, Any]:
             stats_data["mockMode"] = True
             stats_data["mock_mode"] = True
             stats_data["incremental"] = metrics_collector.get_incremental_stats()
+            stats_data["rag"] = metrics_collector.get_rag_metrics()
+            stats_data["hybrid"] = metrics_collector.get_hybrid_metrics()
             return stats_data
 
     # Real data processing pathway
@@ -188,6 +197,8 @@ async def get_stats() -> Dict[str, Any]:
     stats_data["mockMode"] = settings.MOCK_MODE
     stats_data["mock_mode"] = settings.MOCK_MODE
     stats_data["incremental"] = metrics_collector.get_incremental_stats()
+    stats_data["rag"] = metrics_collector.get_rag_metrics()
+    stats_data["hybrid"] = metrics_collector.get_hybrid_metrics()
 
     stats_data["status"] = pipeline_state["status"]
     if pipeline_state["status"] == "running":
@@ -725,6 +736,72 @@ async def query_hybrid_retrieval(req: HybridRetrievalRequest) -> HybridRetrieval
         logger.error("Hybrid retrieval execution failed", error=str(e), query=req.query)
         metrics_collector.hybrid_query_errors += 1
         raise HTTPException(status_code=500, detail=f"Hybrid retrieval failed: {str(e)}")
+
+
+@app.post("/rag/query", response_model=RAGQueryResponse)
+@app.post("/api/rag/query", response_model=RAGQueryResponse)
+async def query_rag_endpoint(req: RAGQueryRequest) -> RAGQueryResponse:
+    """
+    Citation-Aware Grounded RAG Endpoint.
+    Retrieves evidence chunks via hybrid vector + graph traversal, produces factually
+    grounded answers with verifiable [1], [2] citations, and runs strict citation validation.
+    """
+    try:
+        return rag_service.answer_query(req)
+    except Exception as e:
+        logger.error("RAG query execution failed", error=str(e), query=req.query)
+        metrics_collector.record_rag_query(
+            latency_seconds=0.0,
+            citations_count=0,
+            invalid_citations_count=0,
+            unsupported_claims_count=0,
+            is_abstained=False,
+            validation_status="VALIDATION_ERROR",
+        )
+        raise HTTPException(status_code=500, detail=f"RAG query execution failed: {str(e)}")
+
+
+@app.post("/rag/validate", response_model=CitationValidationResponse)
+@app.post("/api/rag/validate", response_model=CitationValidationResponse)
+async def validate_citations_endpoint(req: CitationValidationRequest) -> CitationValidationResponse:
+    """
+    Standalone Citation and Claim Support Validation Endpoint.
+    Validates citation reference validity, checks non-fabrication of sources,
+    and runs semantic claim entailment checking.
+    """
+    t0 = time.perf_counter()
+    try:
+        val_res = citation_validator.validate(
+            answer=req.answer,
+            sources=req.sources,
+            citations=req.citations,
+            semantic_validation=req.semantic_validation,
+            validator_type=req.validator_type,
+        )
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+        metrics_collector.record_citation_validation(
+            is_valid=val_res.reference_valid,
+            is_semantic_supported=val_res.semantic_valid,
+            is_error=False,
+            latency_seconds=duration_ms / 1000.0,
+        )
+        return CitationValidationResponse(
+            validation_status=val_res.status,
+            validation_result=val_res,
+            citations=req.citations or [],
+            execution_ms=round(duration_ms, 3),
+        )
+    except Exception as e:
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+        logger.error("Citation validation failed with error", error=str(e))
+        metrics_collector.record_citation_validation(
+            is_valid=False,
+            is_semantic_supported=False,
+            is_error=True,
+            latency_seconds=duration_ms / 1000.0,
+        )
+        raise HTTPException(status_code=500, detail=f"Citation validation failed: {str(e)}")
+
 
 
 

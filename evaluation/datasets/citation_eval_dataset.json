@@ -1,0 +1,380 @@
+[
+  {
+    "id": "case-01-single-source-support",
+    "case_name": "Answer supported by one source",
+    "description": "Factual answer citing single retrieved chunk with exact matching evidence.",
+    "query": "Where is Anthropic located and what is its funding?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-anthropic",
+        "document_id": "doc-startup-anthropic",
+        "chunk_id": "doc-startup-anthropic:chunk-0",
+        "title": "Anthropic, Inc.",
+        "source_url": "https://techcrunch.com/anthropic-funding",
+        "page_number": 1,
+        "section": "Overview",
+        "text": "Anthropic, Inc. is an AI safety and research company located in San Francisco, CA with $7.3B in Series E funding.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.94,
+        "metadata": {
+          "location": "San Francisco, CA",
+          "total_funding": "$7.3B",
+          "stage": "Series E"
+        }
+      }
+    ],
+    "candidate_answer": "Anthropic, Inc. is located in San Francisco, CA with $7.3B in Series E funding [1].",
+    "expected_status": "VALID",
+    "expected_abstained": false,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": true
+  },
+  {
+    "id": "case-02-multi-source-support",
+    "case_name": "Answer supported by multiple sources",
+    "description": "Factual claim synthesized from and jointly supported by multiple retrieved chunks.",
+    "query": "What foundation models does Anthropic develop?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-anthropic",
+        "document_id": "doc-startup-anthropic",
+        "chunk_id": "doc-startup-anthropic:chunk-0",
+        "title": "Anthropic, Inc.",
+        "source_url": "https://techcrunch.com/anthropic",
+        "page_number": 1,
+        "section": "Company Profile",
+        "text": "Anthropic is an AI safety research company based in San Francisco that builds Claude reasoning foundation models.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.92,
+        "metadata": {"name": "Anthropic"}
+      },
+      {
+        "index": 2,
+        "source_id": "node-product-claude",
+        "document_id": "doc-product-claude",
+        "chunk_id": "doc-product-claude:chunk-0",
+        "title": "Claude 3.5 Sonnet",
+        "source_url": "https://producthunt.com/products/claude-3-5",
+        "page_number": null,
+        "section": "Product Release",
+        "text": "Claude 3.5 Sonnet is a frontier reasoning model developed by Anthropic offering state-of-the-art coding and vision capabilities.",
+        "retrieval_method": "GRAPH",
+        "retrieval_score": 0.88,
+        "metadata": {"maker_company": "Anthropic"}
+      }
+    ],
+    "candidate_answer": "Anthropic builds Claude foundation models including Claude 3.5 Sonnet [1][2].",
+    "expected_status": "VALID",
+    "expected_abstained": false,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": true
+  },
+  {
+    "id": "case-03-multi-claim-distinct-citations",
+    "case_name": "Multiple claims requiring different citations",
+    "description": "Multiple independent sentences each mapping to distinct supporting sources.",
+    "query": "Tell me about Cogna AI and Attention Is All You Need.",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-cogna-ai",
+        "document_id": "doc-startup-cogna-ai",
+        "chunk_id": "doc-startup-cogna-ai:chunk-0",
+        "title": "Cogna AI",
+        "source_url": "https://cogna.ai",
+        "page_number": null,
+        "section": null,
+        "text": "Cogna AI provides autonomous data ingestion pipeline infrastructure and raised $18.5M in Series A funding.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.89,
+        "metadata": {"total_funding": "$18.5M"}
+      },
+      {
+        "index": 2,
+        "source_id": "node-paper-transformer",
+        "document_id": "doc-paper-transformer",
+        "chunk_id": "doc-paper-transformer:chunk-0",
+        "title": "Attention Is All You Need",
+        "source_url": "https://arxiv.org/abs/1706.03762",
+        "page_number": 1,
+        "section": "Abstract",
+        "text": "Attention Is All You Need introduced the Transformer architecture for deep neural networks.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.85,
+        "metadata": {"year": 2017}
+      }
+    ],
+    "candidate_answer": "Cogna AI provides autonomous data ingestion infrastructure and raised $18.5M [1]. Attention Is All You Need introduced the Transformer architecture [2].",
+    "expected_status": "VALID",
+    "expected_abstained": false,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": true
+  },
+  {
+    "id": "case-04-unsupported-question-abstain",
+    "case_name": "Unsupported question",
+    "description": "Query asks about topic with zero relevant retrieved evidence; system must abstain.",
+    "query": "What is the commercial warp drive propulsion efficiency of SpaceX Starship?",
+    "retrieved_sources": [],
+    "candidate_answer": "I do not have sufficient verifiable evidence in the retrieved sources to answer this question.",
+    "expected_status": "INSUFFICIENT_EVIDENCE",
+    "expected_abstained": true,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": true
+  },
+  {
+    "id": "case-05-valid-id-irrelevant-evidence",
+    "case_name": "Valid citation ID attached to irrelevant evidence",
+    "description": "Citation marker points to an existing source chunk that does not support the claim.",
+    "query": "What is the valuation of Claude 3.5 Sonnet?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-cogna-ai",
+        "document_id": "doc-startup-cogna-ai",
+        "chunk_id": "doc-startup-cogna-ai:chunk-0",
+        "title": "Cogna AI",
+        "source_url": "https://cogna.ai",
+        "page_number": null,
+        "section": null,
+        "text": "Cogna AI provides autonomous data ingestion pipeline infrastructure and raised $18.5M in Series A funding.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.45,
+        "metadata": {}
+      }
+    ],
+    "candidate_answer": "Claude 3.5 Sonnet has reached a multi-billion dollar commercial valuation in AI robotics [1].",
+    "expected_status": "UNSUPPORTED_CLAIM",
+    "expected_abstained": false,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": false
+  },
+  {
+    "id": "case-06-nonexistent-citation-id",
+    "case_name": "Nonexistent citation ID",
+    "description": "Answer cites an out-of-range index [99] that does not resolve to any retrieved chunk.",
+    "query": "What is Anthropic's funding?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-anthropic",
+        "document_id": "doc-startup-anthropic",
+        "chunk_id": "doc-startup-anthropic:chunk-0",
+        "title": "Anthropic, Inc.",
+        "source_url": "https://techcrunch.com/anthropic",
+        "page_number": null,
+        "section": null,
+        "text": "Anthropic raised $7.3B in funding.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.90,
+        "metadata": {}
+      }
+    ],
+    "candidate_answer": "Anthropic raised $7.3B in funding [99].",
+    "expected_status": "INVALID_REFERENCE",
+    "expected_abstained": false,
+    "expected_reference_valid": false,
+    "expected_semantic_valid": false
+  },
+  {
+    "id": "case-07-fabricated-source-metadata",
+    "case_name": "Fabricated source URL or document ID",
+    "description": "Citation metadata attempts to claim an invented URL or fabricated document ID.",
+    "query": "Where is Anthropic located?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-anthropic",
+        "document_id": "doc-startup-anthropic",
+        "chunk_id": "doc-startup-anthropic:chunk-0",
+        "title": "Anthropic, Inc.",
+        "source_url": "https://techcrunch.com/anthropic",
+        "page_number": null,
+        "section": null,
+        "text": "Anthropic is located in San Francisco.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.90,
+        "metadata": {}
+      }
+    ],
+    "candidate_answer": "Anthropic is located in San Francisco [1].",
+    "explicit_citation": {
+      "citation_id": 1,
+      "source_id": "node-startup-anthropic",
+      "document_id": "doc-fabricated-fake-id-9999",
+      "claim_text": "Anthropic is located in San Francisco [1].",
+      "reference_valid": true
+    },
+    "expected_status": "INVALID_REFERENCE",
+    "expected_abstained": false,
+    "expected_reference_valid": false,
+    "expected_semantic_valid": false
+  },
+  {
+    "id": "case-08-missing-page-metadata",
+    "case_name": "Missing page metadata",
+    "description": "Retrieved web documents lack page numbers; metadata explicitly None without error.",
+    "query": "What is Cogna AI's product focus?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-cogna-ai",
+        "document_id": "doc-startup-cogna-ai",
+        "chunk_id": "doc-startup-cogna-ai:chunk-0",
+        "title": "Cogna AI",
+        "source_url": "https://cogna.ai",
+        "page_number": null,
+        "section": null,
+        "text": "Cogna AI focuses on autonomous data ingestion and pipeline infrastructure.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.88,
+        "metadata": {}
+      }
+    ],
+    "candidate_answer": "Cogna AI focuses on autonomous data ingestion and pipeline infrastructure [1].",
+    "expected_status": "VALID",
+    "expected_abstained": false,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": true
+  },
+  {
+    "id": "case-09-duplicate-retrieved-chunks",
+    "case_name": "Duplicate retrieved chunks",
+    "description": "Two identical retrieved chunks index cleanly as [1] and [2] without corrupting citations.",
+    "query": "Tell me about Anthropic funding.",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-anthropic",
+        "document_id": "doc-startup-anthropic",
+        "chunk_id": "doc-startup-anthropic:chunk-0",
+        "title": "Anthropic, Inc.",
+        "source_url": "https://techcrunch.com/anthropic",
+        "page_number": 1,
+        "section": "Funding",
+        "text": "Anthropic has raised $7.3B in funding.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.95,
+        "metadata": {}
+      },
+      {
+        "index": 2,
+        "source_id": "node-startup-anthropic",
+        "document_id": "doc-startup-anthropic",
+        "chunk_id": "doc-startup-anthropic:chunk-1",
+        "title": "Anthropic, Inc.",
+        "source_url": "https://techcrunch.com/anthropic",
+        "page_number": 1,
+        "section": "Funding",
+        "text": "Anthropic has raised $7.3B in funding.",
+        "retrieval_method": "GRAPH",
+        "retrieval_score": 0.95,
+        "metadata": {}
+      }
+    ],
+    "candidate_answer": "Anthropic has raised $7.3B in funding [1][2].",
+    "expected_status": "VALID",
+    "expected_abstained": false,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": true
+  },
+  {
+    "id": "case-10-validator-failure-safety",
+    "case_name": "Validator failure",
+    "description": "Validator exception or timeout is safely intercepted without crashing the pipeline.",
+    "query": "Where is Anthropic located?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-anthropic",
+        "document_id": "doc-startup-anthropic",
+        "chunk_id": "doc-startup-anthropic:chunk-0",
+        "title": "Anthropic, Inc.",
+        "source_url": "https://techcrunch.com/anthropic",
+        "page_number": null,
+        "section": null,
+        "text": "Anthropic is located in San Francisco.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.90,
+        "metadata": {}
+      }
+    ],
+    "candidate_answer": "Anthropic is located in San Francisco [1].",
+    "simulate_validator_error": true,
+    "expected_status": "VALIDATION_ERROR",
+    "expected_abstained": false,
+    "expected_reference_valid": false,
+    "expected_semantic_valid": false
+  },
+  {
+    "id": "case-11-conflicting-source-evidence",
+    "case_name": "Conflicting source evidence",
+    "description": "Sources report conflicting founding years (2021 vs 2023) for the same entity.",
+    "query": "When was Anthropic founded?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-anthropic-a",
+        "document_id": "doc-startup-anthropic-a",
+        "chunk_id": "doc-startup-anthropic-a:chunk-0",
+        "title": "Anthropic",
+        "source_url": "https://source-a.com",
+        "page_number": 1,
+        "section": "History",
+        "text": "Anthropic was founded in 2021 by former OpenAI researchers.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.89,
+        "metadata": {}
+      },
+      {
+        "index": 2,
+        "source_id": "node-startup-anthropic-b",
+        "document_id": "doc-startup-anthropic-b",
+        "chunk_id": "doc-startup-anthropic-b:chunk-0",
+        "title": "Anthropic",
+        "source_url": "https://source-b.com",
+        "page_number": 1,
+        "section": "Profile",
+        "text": "Anthropic incorporated in 2023 as a public benefit corporation.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.85,
+        "metadata": {}
+      }
+    ],
+    "candidate_answer": "Anthropic was founded in 2021 [1] and incorporated as a public benefit entity in 2023 [2].",
+    "expected_status": "VALID",
+    "expected_has_conflicts": true,
+    "expected_abstained": false,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": true
+  },
+  {
+    "id": "case-12-answer-should-abstain",
+    "case_name": "Answer that should abstain",
+    "description": "Query asks for nonexistent information in the dataset; system correctly states insufficient evidence.",
+    "query": "What are the Q3 2028 projected earnings for Cognition AI?",
+    "retrieved_sources": [
+      {
+        "index": 1,
+        "source_id": "node-startup-anthropic",
+        "document_id": "doc-startup-anthropic",
+        "chunk_id": "doc-startup-anthropic:chunk-0",
+        "title": "Anthropic",
+        "source_url": "https://techcrunch.com",
+        "page_number": null,
+        "section": null,
+        "text": "Anthropic is an AI company.",
+        "retrieval_method": "VECTOR",
+        "retrieval_score": 0.20,
+        "metadata": {}
+      }
+    ],
+    "candidate_answer": "I do not have sufficient verifiable evidence in the retrieved sources to answer this question.",
+    "expected_status": "INSUFFICIENT_EVIDENCE",
+    "expected_abstained": true,
+    "expected_reference_valid": true,
+    "expected_semantic_valid": true
+  }
+]
